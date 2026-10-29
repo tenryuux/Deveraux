@@ -14,6 +14,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/MaterialParameterCollectionInstance.h"
@@ -143,10 +144,11 @@ FString ADeverauxSkyController::GetDebugDescription() const
 	const bool bSunShadows = SunComponent && SunComponent->GetVisibleFlag() && SunComponent->CastShadows;
 	const bool bMoonShadows = MoonLight->GetVisibleFlag() && MoonLight->CastShadows;
 
-	return FString::Printf(TEXT("sol do mapa: %s | sombra: %s | lua: %s | exposicao %.2f EV | sky light: %s | neblina: %s"),
+	return FString::Printf(TEXT("sol do mapa: %s | sombra: %s | lua: %s, %.2f lux | exposicao %.2f EV | sky light: %s | neblina: %s"),
 		SunOwner ? *SunOwner->GetActorNameOrLabel() : TEXT("nenhum"),
 		bSunShadows ? TEXT("sol") : (bMoonShadows ? TEXT("lua") : TEXT("nenhuma")),
 		bHasMoonImage ? TEXT("imagem") : TEXT("disco"),
+		MoonLight->Intensity,
 		Exposure->bEnabled ? Exposure->Settings.AutoExposureBias : 0.0f,
 		SkyLight.IsValid() ? TEXT("sim") : TEXT("nao"),
 		Fog.IsValid() ? TEXT("sim") : TEXT("nao"));
@@ -236,8 +238,10 @@ void ADeverauxSkyController::ConfigureSceneComponents()
 		ParameterCollectionInstance = GetWorld()->GetParameterCollectionInstance(Collection);
 	}
 
-	if (UMaterialInterface* MoonImageMaterial = Settings->MoonMaterial.LoadSynchronous())
+	if (UMaterialInterface* MoonMaterialAsset = Settings->MoonMaterial.LoadSynchronous())
 	{
+		// Uma copia so deste ator, para o codigo mandar a intensidade da lua ao material
+		MoonImageMaterial = UMaterialInstanceDynamic::Create(MoonMaterialAsset, this);
 		MoonImage->SetMaterial(0, MoonImageMaterial);
 		bHasMoonImage = true;
 
@@ -292,6 +296,14 @@ void ADeverauxSkyController::ApplyLights(const FDeverauxSkyState& State, const U
 	{
 		MoonLight->SetIntensity(MoonIntensity);
 		AppliedMoonIntensity = MoonIntensity;
+
+		// A imagem da lua brilha em proporcao a luz da lua. A exposicao da noite se adapta a essa
+		// mesma luz, entao a lua aparece igual com o sol do mapa a 10 lux ou a 100 mil lux
+		if (MoonImageMaterial)
+		{
+			static const FName MoonLuxName(TEXT("DeverauxLuaLux"));
+			MoonImageMaterial->SetScalarParameterValue(MoonLuxName, MoonIntensity);
+		}
 	}
 	if (Settings.MoonColor != AppliedMoonColor)
 	{

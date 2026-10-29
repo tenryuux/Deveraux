@@ -60,6 +60,8 @@ public:
 	/**
 	 * Opcional. Material com a imagem da lua (Unlit, Masked, Two Sided). Com ele, a lua aparece como essa
 	 * imagem; sem ele, como um disco branco igual ao do sol. Lido quando o jogo comeca.
+	 * O codigo preenche o parametro escalar DeverauxLuaLux com a intensidade da luz da lua: multiplique a
+	 * cor emissiva por ele, para o brilho acompanhar a exposicao da noite.
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Lua")
 	TSoftObjectPtr<UMaterialInterface> MoonMaterial;

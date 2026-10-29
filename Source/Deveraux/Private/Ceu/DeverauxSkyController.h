@@ -12,6 +12,7 @@ class UDeverauxClockSubsystem;
 class UDeverauxSkySettings;
 class UDirectionalLightComponent;
 class UExponentialHeightFogComponent;
+class UMaterialInstanceDynamic;
 class UMaterialParameterCollectionInstance;
 class UPostProcessComponent;
 class USkyLightComponent;
@@ -60,6 +61,10 @@ private:
 	/** Imagem da lua: um plano virado para a camera, longe, atras das nuvens. So aparece com o material configurado. */
 	UPROPERTY(VisibleAnywhere, Category = "Ceu")
 	TObjectPtr<UStaticMeshComponent> MoonImage;
+
+	/** Copia do material da lua que recebe DeverauxLuaLux, a intensidade da luz da lua. */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> MoonImageMaterial;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UDeverauxClockSubsystem> ClockSubsystem;

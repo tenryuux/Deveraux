@@ -12,6 +12,7 @@ class UDeverauxClockSubsystem;
 class UDeverauxSkySettings;
 class UDirectionalLightComponent;
 class UExponentialHeightFogComponent;
+class UVolumetricCloudComponent;
 class UMaterialInstanceDynamic;
 class UMaterialParameterCollectionInstance;
 class UPostProcessComponent;
@@ -73,6 +74,7 @@ private:
 	TWeakObjectPtr<UDirectionalLightComponent> Sun;
 	TWeakObjectPtr<USkyLightComponent> SkyLight;
 	TWeakObjectPtr<UExponentialHeightFogComponent> Fog;
+	TWeakObjectPtr<UVolumetricCloudComponent> Clouds;
 	TWeakObjectPtr<UMaterialParameterCollectionInstance> ParameterCollectionInstance;
 
 	// Valores originais do mapa, que servem de base para a noite
@@ -88,5 +90,7 @@ private:
 	FLinearColor AppliedMoonColor = FLinearColor(-1.0f, -1.0f, -1.0f);
 	float AppliedMoonAngle = -1.0f;
 	float AppliedFogScale = -1.0f;
+	double AppliedMoonDistanceKm = 0.0;
+	bool bMoonImageVisible = false;
 	bool bHasMoonImage = false;
 };

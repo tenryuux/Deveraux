@@ -9,6 +9,7 @@
 
 #include "DeverauxSkySettings.generated.h"
 
+class UMaterialInterface;
 class UMaterialParameterCollection;
 
 /**
@@ -51,6 +52,17 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category = "Lua")
 	FLinearColor MoonColor = FLinearColor(0.55f, 0.65f, 1.0f);
+
+	/** Tamanho da lua no ceu, em graus (a de verdade tem 0,5). Vale para o disco e para a imagem, e tambem amacia a sombra da lua. */
+	UPROPERTY(Config, EditAnywhere, Category = "Lua", meta = (ClampMin = "0.1", ClampMax = "10"))
+	float MoonAngularSizeDegrees = 1.5f;
+
+	/**
+	 * Opcional. Material com a imagem da lua (Unlit, Masked, Two Sided). Com ele, a lua aparece como essa
+	 * imagem; sem ele, como um disco branco igual ao do sol. Lido quando o jogo comeca.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Lua")
+	TSoftObjectPtr<UMaterialInterface> MoonMaterial;
 
 	/** Sombra da lua. So uma luz faz sombra por vez: a lua faz sombra quando esta mais alta que o sol. */
 	UPROPERTY(Config, EditAnywhere, Category = "Lua")

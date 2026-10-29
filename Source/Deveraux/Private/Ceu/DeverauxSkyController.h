@@ -15,6 +15,7 @@ class UExponentialHeightFogComponent;
 class UMaterialParameterCollectionInstance;
 class UPostProcessComponent;
 class USkyLightComponent;
+class UStaticMeshComponent;
 
 /**
  * Faz o ceu andar com o relogio: gira o Directional Light do mapa como sol, cria e gira a lua,
@@ -45,6 +46,7 @@ private:
 	void ApplyExposure(const FDeverauxSkyState& State, const UDeverauxSkySettings& Settings);
 	void ApplyFog(const FDeverauxSkyState& State, const UDeverauxSkySettings& Settings);
 	void ApplyMaterialParameters(double TimeOfDayFraction, const FDeverauxSkyState& State);
+	void ApplyMoonImage(const FDeverauxSkyState& State, const UDeverauxSkySettings& Settings);
 
 	UPROPERTY(VisibleAnywhere, Category = "Ceu")
 	TObjectPtr<USceneComponent> Root;
@@ -54,6 +56,10 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Ceu")
 	TObjectPtr<UPostProcessComponent> Exposure;
+
+	/** Imagem da lua: um plano virado para a camera, longe, atras das nuvens. So aparece com o material configurado. */
+	UPROPERTY(VisibleAnywhere, Category = "Ceu")
+	TObjectPtr<UStaticMeshComponent> MoonImage;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UDeverauxClockSubsystem> ClockSubsystem;
@@ -75,5 +81,7 @@ private:
 	bool bHasAppliedRotation = false;
 	float AppliedMoonIntensity = -1.0f;
 	FLinearColor AppliedMoonColor = FLinearColor(-1.0f, -1.0f, -1.0f);
+	float AppliedMoonAngle = -1.0f;
 	float AppliedFogScale = -1.0f;
+	bool bHasMoonImage = false;
 };

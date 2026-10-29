@@ -1,0 +1,39 @@
+# Projeto Deveraux - .gitignore do repositorio de CODIGO (vai para o GitHub)
+# Fica na raiz do projeto, ao lado do Deveraux.uproject.
+#
+# Lista de permissao: na raiz, tudo fica fora, menos o que esta liberado abaixo.
+# Assim nenhum arquivo solto (render, video, .blend) sobe para o GitHub por engano.
+# Content e Arte tem repositorios proprios no seu PC (ver Configurar-Repos.bat),
+# porque as regras do GitHub proibem conteudo pornografico.
+
+# 1. Na raiz, ignora tudo...
+/*
+
+# 2. ...e libera so codigo e configuracao
+!/.gitignore
+!/.gitattributes
+!/*.uproject
+!/.vsconfig
+!/Config/
+!/Source/
+!/Plugins/
+!/Build/
+!/Configurar-Repos.bat
+!/Salvar.bat
+
+# Dentro dos plugins: so codigo; binarios gerados e conteudo ficam fora
+Plugins/*/Content/
+Plugins/**/Binaries/
+Plugins/**/Intermediate/
+
+# Build: ignora tudo, menos icones e listas de pak
+Build/*
+!Build/*/
+Build/*/**
+!Build/*/PakBlacklist*.txt
+!Build/**/*.ico
+
+# Sistema
+Thumbs.db
+Desktop.ini
+.DS_Store

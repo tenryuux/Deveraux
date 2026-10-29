@@ -1,0 +1,15 @@
+# Projeto Deveraux - .gitattributes do repositorio de CODIGO
+# Sem LFS: aqui entram so codigo e configuracao.
+
+# Texto: o Git normaliza o fim de linha
+* text=auto
+
+# Scripts do Windows precisam de CRLF para rodar direito
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binarios que podem aparecer aqui (icones, arquivos de plugin)
+*.ico binary
+*.png binary
+*.uasset binary
+*.umap binary

@@ -2,17 +2,24 @@
 
 #include "Ceu/DeverauxSkyController.h"
 
+#include "Camera/PlayerCameraManager.h"
 #include "Ceu/DeverauxSkySettings.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/PostProcessComponent.h"
 #include "Components/SkyLightComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/GameInstance.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Kismet/GameplayStatics.h"
+#include "Materials/MaterialInterface.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/MaterialParameterCollectionInstance.h"
+#include "Math/RotationMatrix.h"
 #include "Relogio/DeverauxClockSubsystem.h"
+#include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDeverauxCeu, Log, All);
 
@@ -26,6 +33,15 @@ namespace DeverauxSkyControllerPrivate
 
 	/** Ate quantas faixas de crepusculo abaixo do horizonte a luz continua acesa, colorindo o ceu. */
 	constexpr double VisibleTwilightBands = 2.0;
+
+	/** Distancia da imagem da lua ate a camera, em cm: 60 km, alem das nuvens, que sao tracadas ate 50 km. */
+	constexpr double MoonImageDistance = 6000000.0;
+
+	/** Lado do plano basico da engine, em cm. */
+	constexpr double PlaneMeshSize = 100.0;
+
+	/** Abaixo desta altura a imagem da lua some, para nao aparecer por baixo do horizonte. */
+	constexpr double MoonImageHideDegrees = -3.0;
 
 	void UpdateLightState(UDirectionalLightComponent* Light, double ElevationDegrees, bool bAllowShadows, double TwilightDegrees)
 	{
@@ -75,6 +91,18 @@ ADeverauxSkyController::ADeverauxSkyController()
 	Exposure->bUnbound = true;
 	Exposure->Priority = 100.0f;
 	Exposure->Settings.bOverride_AutoExposureBias = true;
+
+	// Imagem da lua: plano basico da engine, sem colisao, sombra nem luz indireta. Escondido ate ter material
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> PlaneMesh(TEXT("/Engine/BasicShapes/Plane.Plane"));
+	MoonImage = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ImagemDaLua"));
+	MoonImage->SetupAttachment(Root);
+	MoonImage->SetMobility(EComponentMobility::Movable);
+	MoonImage->SetStaticMesh(PlaneMesh.Object);
+	MoonImage->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	MoonImage->SetCastShadow(false);
+	MoonImage->bAffectDistanceFieldLighting = false;
+	MoonImage->bAffectDynamicIndirectLighting = false;
+	MoonImage->SetHiddenInGame(true);
 }
 
 void ADeverauxSkyController::BeginPlay()
@@ -115,9 +143,10 @@ FString ADeverauxSkyController::GetDebugDescription() const
 	const bool bSunShadows = SunComponent && SunComponent->GetVisibleFlag() && SunComponent->CastShadows;
 	const bool bMoonShadows = MoonLight->GetVisibleFlag() && MoonLight->CastShadows;
 
-	return FString::Printf(TEXT("sol do mapa: %s | sombra: %s | exposicao %.2f EV | sky light: %s | neblina: %s"),
+	return FString::Printf(TEXT("sol do mapa: %s | sombra: %s | lua: %s | exposicao %.2f EV | sky light: %s | neblina: %s"),
 		SunOwner ? *SunOwner->GetActorNameOrLabel() : TEXT("nenhum"),
 		bSunShadows ? TEXT("sol") : (bMoonShadows ? TEXT("lua") : TEXT("nenhuma")),
+		bHasMoonImage ? TEXT("imagem") : TEXT("disco"),
 		Exposure->bEnabled ? Exposure->Settings.AutoExposureBias : 0.0f,
 		SkyLight.IsValid() ? TEXT("sim") : TEXT("nao"),
 		Fog.IsValid() ? TEXT("sim") : TEXT("nao"));
@@ -201,9 +230,19 @@ void ADeverauxSkyController::ConfigureSceneComponents()
 		FogDirectionalOriginal = FogComponent->DirectionalInscatteringLuminance;
 	}
 
-	if (UMaterialParameterCollection* Collection = GetDefault<UDeverauxSkySettings>()->ParameterCollection.LoadSynchronous())
+	const UDeverauxSkySettings* Settings = GetDefault<UDeverauxSkySettings>();
+	if (UMaterialParameterCollection* Collection = Settings->ParameterCollection.LoadSynchronous())
 	{
 		ParameterCollectionInstance = GetWorld()->GetParameterCollectionInstance(Collection);
+	}
+
+	if (UMaterialInterface* MoonImageMaterial = Settings->MoonMaterial.LoadSynchronous())
+	{
+		MoonImage->SetMaterial(0, MoonImageMaterial);
+		bHasMoonImage = true;
+
+		// A imagem toma o lugar do disco branco que a atmosfera desenha para a lua
+		MoonLight->SetAtmosphereSunDiskColorScale(FLinearColor(0.0f, 0.0f, 0.0f));
 	}
 }
 
@@ -221,6 +260,7 @@ void ADeverauxSkyController::UpdateSky(bool bForceRotation)
 	const FDeverauxSkyState State = DeverauxSky::ComputeSkyState(TimeOfDay, Settings->MakeSunPathParams());
 
 	ApplyLights(State, *Settings, bForceRotation);
+	ApplyMoonImage(State, *Settings);
 	ApplyExposure(State, *Settings);
 	ApplyFog(State, *Settings);
 	ApplyMaterialParameters(TimeOfDay, State);
@@ -258,12 +298,44 @@ void ADeverauxSkyController::ApplyLights(const FDeverauxSkyState& State, const U
 		MoonLight->SetLightColor(Settings.MoonColor);
 		AppliedMoonColor = Settings.MoonColor;
 	}
+	if (Settings.MoonAngularSizeDegrees != AppliedMoonAngle)
+	{
+		// O tamanho da fonte de luz e o tamanho do disco no ceu e a maciez da sombra da lua
+		MoonLight->SetLightSourceAngle(Settings.MoonAngularSizeDegrees);
+		AppliedMoonAngle = Settings.MoonAngularSizeDegrees;
+	}
 
 	// So uma luz faz sombra por vez: a mais alta. A troca acontece com as duas no horizonte,
 	// onde a atmosfera ja deixou as duas fracas, e assim o sol virtual nunca e pago duas vezes
 	const bool bSunIsHigher = State.SunElevationDegrees >= State.MoonElevationDegrees;
 	UpdateLightState(SunComponent, State.SunElevationDegrees, bSunCastsShadows && bSunIsHigher, Settings.TwilightDegrees);
 	UpdateLightState(MoonLight, State.MoonElevationDegrees, Settings.bMoonCastsShadows && !bSunIsHigher, Settings.TwilightDegrees);
+}
+
+void ADeverauxSkyController::ApplyMoonImage(const FDeverauxSkyState& State, const UDeverauxSkySettings& Settings)
+{
+	using namespace DeverauxSkyControllerPrivate;
+
+	if (!bHasMoonImage)
+	{
+		return;
+	}
+
+	const APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0);
+	const bool bVisible = Camera && State.MoonElevationDegrees > MoonImageHideDegrees;
+	MoonImage->SetHiddenInGame(!bVisible);
+	if (!bVisible)
+	{
+		return;
+	}
+
+	// Sempre na direcao da lua a partir da camera, entao nao muda de tamanho nem de lugar quando o jogador anda.
+	// Fica longe o bastante para as nuvens passarem na frente, e virada para a camera.
+	const FVector Direction = FRotator(0.0, Settings.NorthYawDegrees, 0.0).RotateVector(State.MoonDirection);
+	const double Size = 2.0 * MoonImageDistance * FMath::Tan(FMath::DegreesToRadians(0.5 * Settings.MoonAngularSizeDegrees));
+	MoonImage->SetWorldLocationAndRotation(Camera->GetCameraLocation() + Direction * MoonImageDistance,
+		FRotationMatrix::MakeFromZX(-Direction, FVector(0.0, 0.0, 1.0)).Rotator());
+	MoonImage->SetWorldScale3D(FVector(Size / PlaneMeshSize));
 }
 
 void ADeverauxSkyController::ApplyExposure(const FDeverauxSkyState& State, const UDeverauxSkySettings& Settings)

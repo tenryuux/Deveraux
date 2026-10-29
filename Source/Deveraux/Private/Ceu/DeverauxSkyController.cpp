@@ -144,8 +144,9 @@ FString ADeverauxSkyController::GetDebugDescription() const
 	const bool bSunShadows = SunComponent && SunComponent->GetVisibleFlag() && SunComponent->CastShadows;
 	const bool bMoonShadows = MoonLight->GetVisibleFlag() && MoonLight->CastShadows;
 
-	return FString::Printf(TEXT("sol do mapa: %s | sombra: %s | lua: %s, %.2f lux | exposicao %.2f EV | sky light: %s | neblina: %s"),
+	return FString::Printf(TEXT("sol do mapa: %s, %.2f lux | sombra: %s | lua: %s, %.2f lux | exposicao %.2f EV | sky light: %s | neblina: %s"),
 		SunOwner ? *SunOwner->GetActorNameOrLabel() : TEXT("nenhum"),
+		SunIntensity,
 		bSunShadows ? TEXT("sol") : (bMoonShadows ? TEXT("lua") : TEXT("nenhuma")),
 		bHasMoonImage ? TEXT("imagem") : TEXT("disco"),
 		MoonLight->Intensity,
@@ -275,6 +276,11 @@ void ADeverauxSkyController::ApplyLights(const FDeverauxSkyState& State, const U
 	using namespace DeverauxSkyControllerPrivate;
 
 	UDirectionalLightComponent* SunComponent = Sun.Get();
+	if (SunComponent)
+	{
+		// Lida a cada quadro: mudar a intensidade do sol com o jogo rodando tambem muda a lua
+		SunIntensity = SunComponent->Intensity;
+	}
 
 	// Cada giro do sol refaz as sombras virtuais dele inteiras, entao ele so gira quando andou o passo
 	const double Cosine = FMath::Clamp(FVector::DotProduct(State.SunDirection, AppliedSunDirection), -1.0, 1.0);

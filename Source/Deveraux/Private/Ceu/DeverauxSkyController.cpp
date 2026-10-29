@@ -9,6 +9,7 @@
 #include "Components/PostProcessComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/VolumetricCloudComponent.h"
 #include "Engine/GameInstance.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -35,8 +36,19 @@ namespace DeverauxSkyControllerPrivate
 	/** Ate quantas faixas de crepusculo abaixo do horizonte a luz continua acesa, colorindo o ceu. */
 	constexpr double VisibleTwilightBands = 2.0;
 
-	/** Distancia da imagem da lua ate a camera, em cm: 60 km, alem das nuvens, que sao tracadas ate 50 km. */
-	constexpr double MoonImageDistance = 6000000.0;
+	constexpr double CentimetersPerKm = 100000.0;
+
+	/**
+	 * Distancia da imagem da lua, em km. Ela fica logo acima do topo das nuvens, na direcao da lua:
+	 * as nuvens passam na frente, e a nevoa da atmosfera (perspectiva aerea), que cresce com a
+	 * distancia e apagava a lua a 60 km, fica o mais fraca possivel.
+	 */
+	constexpr double MoonImageMinDistanceKm = 5.0;
+	constexpr double MoonImageMaxDistanceKm = 60.0;
+	constexpr double MoonAboveCloudsMarginKm = 1.0;
+
+	/** Topo das nuvens quando o mapa nao tem nuvens volumetricas, em km (o padrao da Unreal: 5 + 10). */
+	constexpr double DefaultCloudTopKm = 15.0;
 
 	/** Lado do plano basico da engine, em cm. */
 	constexpr double PlaneMeshSize = 100.0;
@@ -143,16 +155,19 @@ FString ADeverauxSkyController::GetDebugDescription() const
 	const AActor* SunOwner = SunComponent ? SunComponent->GetOwner() : nullptr;
 	const bool bSunShadows = SunComponent && SunComponent->GetVisibleFlag() && SunComponent->CastShadows;
 	const bool bMoonShadows = MoonLight->GetVisibleFlag() && MoonLight->CastShadows;
+	const FString MoonText = !bHasMoonImage ? FString(TEXT("disco"))
+		: (bMoonImageVisible ? FString::Printf(TEXT("imagem a %.1f km"), AppliedMoonDistanceKm) : FString(TEXT("imagem, abaixo do horizonte")));
 
-	return FString::Printf(TEXT("sol do mapa: %s, %.2f lux | sombra: %s | lua: %s, %.2f lux | exposicao %.2f EV | sky light: %s | neblina: %s"),
+	return FString::Printf(TEXT("sol do mapa: %s, %.2f lux | sombra: %s | lua: %s, %.2f lux | exposicao %.2f EV | sky light: %s | neblina: %s | nuvens: %s"),
 		SunOwner ? *SunOwner->GetActorNameOrLabel() : TEXT("nenhum"),
 		SunIntensity,
 		bSunShadows ? TEXT("sol") : (bMoonShadows ? TEXT("lua") : TEXT("nenhuma")),
-		bHasMoonImage ? TEXT("imagem") : TEXT("disco"),
+		*MoonText,
 		MoonLight->Intensity,
 		Exposure->bEnabled ? Exposure->Settings.AutoExposureBias : 0.0f,
 		SkyLight.IsValid() ? TEXT("sim") : TEXT("nao"),
-		Fog.IsValid() ? TEXT("sim") : TEXT("nao"));
+		Fog.IsValid() ? TEXT("sim") : TEXT("nao"),
+		Clouds.IsValid() ? TEXT("sim") : TEXT("nao"));
 }
 
 void ADeverauxSkyController::FindSceneComponents()
@@ -189,6 +204,10 @@ void ADeverauxSkyController::FindSceneComponents()
 		if (!Fog.IsValid())
 		{
 			Fog = Actor->FindComponentByClass<UExponentialHeightFogComponent>();
+		}
+		if (!Clouds.IsValid())
+		{
+			Clouds = Actor->FindComponentByClass<UVolumetricCloudComponent>();
 		}
 	}
 
@@ -342,16 +361,32 @@ void ADeverauxSkyController::ApplyMoonImage(const FDeverauxSkyState& State, cons
 	const APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0);
 	const bool bVisible = Camera && State.MoonElevationDegrees > MoonImageHideDegrees;
 	MoonImage->SetHiddenInGame(!bVisible);
+	bMoonImageVisible = bVisible;
 	if (!bVisible)
 	{
 		return;
 	}
 
-	// Sempre na direcao da lua a partir da camera, entao nao muda de tamanho nem de lugar quando o jogador anda.
-	// Fica longe o bastante para as nuvens passarem na frente, e virada para a camera.
+	// Sempre na direcao da lua a partir da camera, entao nao muda de tamanho nem de lugar quando o jogador anda
 	const FVector Direction = FRotator(0.0, Settings.NorthYawDegrees, 0.0).RotateVector(State.MoonDirection);
-	const double Size = 2.0 * MoonImageDistance * FMath::Tan(FMath::DegreesToRadians(0.5 * Settings.MoonAngularSizeDegrees));
-	MoonImage->SetWorldLocationAndRotation(Camera->GetCameraLocation() + Direction * MoonImageDistance,
+	const FVector CameraLocation = Camera->GetCameraLocation();
+
+	double DistanceKm = Settings.MoonImageDistanceKm;
+	if (DistanceKm <= 0.0)
+	{
+		// Logo acima do topo das nuvens ao longo da direcao da lua. O chao do planeta fica na altura zero do mundo
+		const UVolumetricCloudComponent* CloudComponent = Clouds.Get();
+		const double CloudTopKm = CloudComponent ? CloudComponent->LayerBottomAltitude + CloudComponent->LayerHeight : DefaultCloudTopKm;
+		const double CameraAltitudeKm = FMath::Max(0.0, CameraLocation.Z / CentimetersPerKm);
+		DistanceKm = (CloudTopKm + MoonAboveCloudsMarginKm - CameraAltitudeKm) / FMath::Max(Direction.Z, 0.01);
+	}
+	DistanceKm = FMath::Clamp(DistanceKm, MoonImageMinDistanceKm, MoonImageMaxDistanceKm);
+	AppliedMoonDistanceKm = DistanceKm;
+
+	// Tamanho no mundo que da o tamanho angular pedido nessa distancia, com o plano virado para a camera
+	const double Distance = DistanceKm * CentimetersPerKm;
+	const double Size = 2.0 * Distance * FMath::Tan(FMath::DegreesToRadians(0.5 * Settings.MoonAngularSizeDegrees));
+	MoonImage->SetWorldLocationAndRotation(CameraLocation + Direction * Distance,
 		FRotationMatrix::MakeFromZX(-Direction, FVector(0.0, 0.0, 1.0)).Rotator());
 	MoonImage->SetWorldScale3D(FVector(Size / PlaneMeshSize));
 }

@@ -66,6 +66,14 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Lua")
 	TSoftObjectPtr<UMaterialInterface> MoonMaterial;
 
+	/**
+	 * Distancia da imagem da lua ate a camera, em km. 0 = automatico: logo acima do topo das nuvens,
+	 * para elas passarem na frente. Mais longe, a nevoa da atmosfera cobre mais a lua; mais perto que
+	 * o topo das nuvens, a lua aparece na frente delas.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Lua", meta = (ClampMin = "0", ClampMax = "60"))
+	float MoonImageDistanceKm = 0.0f;
+
 	/** Sombra da lua. So uma luz faz sombra por vez: a lua faz sombra quando esta mais alta que o sol. */
 	UPROPERTY(Config, EditAnywhere, Category = "Lua")
 	bool bMoonCastsShadows = true;

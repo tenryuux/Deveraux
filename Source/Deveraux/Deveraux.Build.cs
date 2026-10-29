@@ -8,7 +8,7 @@ public class Deveraux : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "DeverauxSim", "DeverauxBattle" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 

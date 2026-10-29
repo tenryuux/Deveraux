@@ -11,5 +11,6 @@ public class DeverauxEditorTarget : TargetRules
 		DefaultBuildSettings = BuildSettingsVersion.V7;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_8;
 		ExtraModuleNames.Add("Deveraux");
+		ExtraModuleNames.Add("DeverauxEditor");
 	}
 }

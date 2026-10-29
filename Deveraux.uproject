@@ -4,11 +4,26 @@
 	"Category": "",
 	"Description": "",
 	"Modules": [
-		{
-			"Name": "Deveraux",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
-		}
+	{
+		"Name": "Deveraux",
+		"Type": "Runtime",
+		"LoadingPhase": "Default"
+	},
+	{
+		"Name": "DeverauxSim",
+		"Type": "Runtime",
+		"LoadingPhase": "Default"
+	},
+	{
+		"Name": "DeverauxBattle",
+		"Type": "Runtime",
+		"LoadingPhase": "Default"
+	},
+	{
+		"Name": "DeverauxEditor",
+		"Type": "Editor",
+		"LoadingPhase": "Default"
+	}
 	],
 	"Plugins": [
 		{

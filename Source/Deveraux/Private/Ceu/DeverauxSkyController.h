@@ -98,6 +98,9 @@ private:
 	double AppliedMoonDistanceKm = 0.0;
 	FLinearColor AppliedMoonAtmosphere = FLinearColor(-1.0f, -1.0f, -1.0f);
 	double MoonAerialTransmittance = 1.0;
+
+	/** O que falta no material da lua, para o Info e o log. Vazio = tudo certo. */
+	FString MoonMaterialProblems;
 	bool bMoonImageVisible = false;
 	bool bHasMoonImage = false;
 };

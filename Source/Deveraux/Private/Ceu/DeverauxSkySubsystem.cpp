@@ -79,6 +79,7 @@ namespace DeverauxSkySubsystemPrivate
 		if (const ADeverauxSkyController* Controller = SkySubsystem->GetController())
 		{
 			Ar.Log(*Controller->GetDebugDescription());
+			Ar.Log(*Controller->GetCloudDescription());
 		}
 		else
 		{

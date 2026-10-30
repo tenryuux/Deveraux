@@ -20,6 +20,26 @@ class USkyAtmosphereComponent;
 class USkyLightComponent;
 class UStaticMeshComponent;
 
+/** Ajustes das nuvens que o ceu aplica nos atores do mapa, vindos do Project Settings. */
+struct FDeverauxCloudSettings
+{
+	bool bShadows = false;
+	float ShadowStrength = 0.0f;
+	float ShadowExtentKm = 0.0f;
+	bool bSkyOcclusion = false;
+	bool bLightShafts = false;
+	float DensityScale = 0.0f;
+	float CoverageOffset = 0.0f;
+	float BottomOcclusion = 0.0f;
+
+	bool Equals(const FDeverauxCloudSettings& Other) const
+	{
+		return bShadows == Other.bShadows && ShadowStrength == Other.ShadowStrength && ShadowExtentKm == Other.ShadowExtentKm
+			&& bSkyOcclusion == Other.bSkyOcclusion && bLightShafts == Other.bLightShafts && DensityScale == Other.DensityScale
+			&& CoverageOffset == Other.CoverageOffset && BottomOcclusion == Other.BottomOcclusion;
+	}
+};
+
 /**
  * Faz o ceu andar com o relogio: gira o Directional Light do mapa como sol, cria e gira a lua,
  * e ajusta exposicao e neblina para a noite.
@@ -41,6 +61,9 @@ public:
 	/** Resumo para o comando Deveraux.Ceu.Info. */
 	FString GetDebugDescription() const;
 
+	/** O que o ceu fez com as nuvens, para o comando Deveraux.Ceu.Info. */
+	FString GetCloudDescription() const;
+
 private:
 	void FindSceneComponents();
 	void ConfigureSceneComponents();
@@ -50,6 +73,7 @@ private:
 	void ApplyFog(const FDeverauxSkyState& State, const UDeverauxSkySettings& Settings);
 	void ApplyMaterialParameters(double TimeOfDayFraction, const FDeverauxSkyState& State);
 	void ApplyMoonImage(const FDeverauxSkyState& State, const UDeverauxSkySettings& Settings);
+	void ApplyClouds(const UDeverauxSkySettings& Settings);
 
 	UPROPERTY(VisibleAnywhere, Category = "Ceu")
 	TObjectPtr<USceneComponent> Root;
@@ -67,6 +91,10 @@ private:
 	/** Copia do material da lua que recebe DeverauxLuaLux (intensidade da luz) e DeverauxLuaAtmosfera (efeito do ar). */
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> MoonImageMaterial;
+
+	/** Copia do material das nuvens do mapa, com a densidade e a cobertura do Project Settings. */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> CloudMaterial;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UDeverauxClockSubsystem> ClockSubsystem;
@@ -101,6 +129,15 @@ private:
 
 	/** O que falta no material da lua, para o Info e o log. Vazio = tudo certo. */
 	FString MoonMaterialProblems;
+
+	// Nuvens: o que ja foi aplicado e os valores originais do material delas
+	FDeverauxCloudSettings AppliedClouds;
+	bool bHasAppliedClouds = false;
+	float CloudDensityOriginal = 0.0f;
+	float CloudCoverageOriginal = 0.0f;
+	bool bHasCloudDensity = false;
+	bool bHasCloudCoverage = false;
+	bool bCheckedCloudMaterial = false;
 	bool bMoonImageVisible = false;
 	bool bHasMoonImage = false;
 };

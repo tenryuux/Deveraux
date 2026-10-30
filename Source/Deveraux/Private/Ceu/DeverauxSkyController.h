@@ -162,6 +162,9 @@ private:
 	// Nuvens: o que ja foi aplicado e os valores originais do material delas
 	FDeverauxCloudSettings AppliedClouds;
 	bool bHasAppliedClouds = false;
+	FString CloudMaterialName;
+	FName CloudDensityName;
+	FName CloudCoverageName;
 	float CloudDensityOriginal = 0.0f;
 	float CloudCoverageOriginal = 0.0f;
 	bool bHasCloudDensity = false;

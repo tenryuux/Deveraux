@@ -173,6 +173,43 @@ namespace DeverauxSkyControllerPrivate
 		return FString::Join(Problems, TEXT("; "));
 	}
 
+	/**
+	 * Chama um setter de Blueprint da Unreal pelo nome, como o Blueprint faz. Os setters das nuvens nao sao
+	 * exportados para outros modulos, e so eles atualizam tudo o que a Unreal guarda por dentro (na 5.8 o
+	 * material das nuvens fica em dois ponteiros, e o desenho usa o que so o setter muda).
+	 * Devolve false se a funcao nao existe ou mudou de formato.
+	 */
+	template <typename TParams>
+	bool CallBlueprintSetter(UObject& Object, const TCHAR* FunctionName, TParams Params)
+	{
+		UFunction* Function = Object.FindFunction(FName(FunctionName));
+		if (!Function || Function->ParmsSize != sizeof(TParams))
+		{
+			return false;
+		}
+		Object.ProcessEvent(Function, &Params);
+		return true;
+	}
+
+	/** Muda um numero das nuvens pelo setter da Unreal; se nao der, direto no campo. */
+	void SetCloudFloat(UVolumetricCloudComponent& Cloud, const TCHAR* SetterName, float& Field, float Value)
+	{
+		struct FParams
+		{
+			float NewValue;
+		};
+		if (!CallBlueprintSetter(Cloud, SetterName, FParams{ Value }) || Field != Value)
+		{
+			Field = Value;
+			Cloud.MarkRenderStateDirty();
+		}
+	}
+
+	double AngleBetweenDegrees(const FVector& A, const FVector& B)
+	{
+		return FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(A, B), -1.0, 1.0)));
+	}
+
 	/** Parametros do material padrao de nuvens da Unreal (5.5 em diante). Outro material pode nao ter. */
 	const FName& CloudDensityParameter()
 	{
@@ -268,6 +305,9 @@ namespace DeverauxSkyControllerPrivate
 ADeverauxSkyController::ADeverauxSkyController()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	// Com o jogo pausado o relogio para, mas a camera pode andar: a imagem da lua tem de ir junto
+	PrimaryActorTick.bTickEvenWhenPaused = true;
 
 	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Raiz"));
 	Root->SetMobility(EComponentMobility::Movable);
@@ -480,8 +520,11 @@ void ADeverauxSkyController::UpdateSky(bool bForceRotation)
 	const UDeverauxSkySettings* Settings = GetDefault<UDeverauxSkySettings>();
 	if (!Settings->bEnabled || !ClockSubsystem)
 	{
-		// Desligado no meio do jogo: o ceu fica onde esta, sem a exposicao da noite
+		// Desligado no meio do jogo: o ceu fica onde esta, sem a exposicao da noite e sem a imagem da
+		// lua, que pararia num ponto do mundo em vez de acompanhar a camera
 		Exposure->bEnabled = false;
+		MoonImage->SetHiddenInGame(true);
+		bMoonImageVisible = false;
 		return;
 	}
 
@@ -505,62 +548,41 @@ void ADeverauxSkyController::ApplyClouds(const UDeverauxSkySettings& Settings)
 		return;
 	}
 
+	// O material das nuvens pode carregar depois do comeco do jogo: tenta a cada quadro ate conseguir
+	UVolumetricCloudComponent* CloudComponent = Clouds.Get();
+	const bool bNewCloudMaterial = SetupCloudMaterial(CloudComponent);
+
 	// Os ajustes mudam pouco (Project Settings): os componentes so sao mexidos quando algo muda
 	const FDeverauxCloudSettings Wanted = MakeCloudSettings(Settings);
-	if (bHasAppliedClouds && Wanted.Equals(AppliedClouds))
+	const bool bSettingsChanged = !bHasAppliedClouds || !Wanted.Equals(AppliedClouds);
+	if (!bSettingsChanged && !bNewCloudMaterial)
 	{
 		return;
 	}
 	AppliedClouds = Wanted;
 	bHasAppliedClouds = true;
 
-	ConfigureLightForClouds(Sun.Get(), Wanted);
-	ConfigureLightForClouds(MoonLight, Wanted);
-
-	// Com o ceu nublado, o Sky Light ilumina menos o chao
-	if (USkyLightComponent* SkyLightComponent = SkyLight.Get())
+	if (bSettingsChanged)
 	{
-		if ((SkyLightComponent->bCloudAmbientOcclusion != 0) != Wanted.bSkyOcclusion)
+		ConfigureLightForClouds(Sun.Get(), Wanted);
+		ConfigureLightForClouds(MoonLight, Wanted);
+
+		// Com o ceu nublado, o Sky Light ilumina menos o chao
+		if (USkyLightComponent* SkyLightComponent = SkyLight.Get())
 		{
-			SkyLightComponent->bCloudAmbientOcclusion = Wanted.bSkyOcclusion;
-			SkyLightComponent->MarkRenderStateDirty();
+			if ((SkyLightComponent->bCloudAmbientOcclusion != 0) != Wanted.bSkyOcclusion)
+			{
+				SkyLightComponent->bCloudAmbientOcclusion = Wanted.bSkyOcclusion;
+				SkyLightComponent->MarkRenderStateDirty();
+			}
+		}
+
+		if (CloudComponent && CloudComponent->SkyLightCloudBottomOcclusion != Wanted.BottomOcclusion)
+		{
+			SetCloudFloat(*CloudComponent, TEXT("SetSkyLightCloudBottomOcclusion"), CloudComponent->SkyLightCloudBottomOcclusion, Wanted.BottomOcclusion);
 		}
 	}
 
-	UVolumetricCloudComponent* CloudComponent = Clouds.Get();
-	if (!CloudComponent)
-	{
-		return;
-	}
-
-	bool bCloudChanged = false;
-	if (CloudComponent->SkyLightCloudBottomOcclusion != Wanted.BottomOcclusion)
-	{
-		CloudComponent->SkyLightCloudBottomOcclusion = Wanted.BottomOcclusion;
-		bCloudChanged = true;
-	}
-
-	// Uma copia do material das nuvens, so deste jogo: o mapa e o material original nao mudam.
-	// Na 5.8 o material fica num ponteiro "soft"; ele ja esta carregado, porque as nuvens estao na tela
-	UMaterialInterface* OriginalMaterial = bCheckedCloudMaterial ? nullptr : CloudComponent->Material.Get();
-	if (OriginalMaterial)
-	{
-		bCheckedCloudMaterial = true;
-		bHasCloudDensity = OriginalMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo(CloudDensityParameter()), CloudDensityOriginal, false);
-		bHasCloudCoverage = OriginalMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo(CloudCoverageParameter()), CloudCoverageOriginal, false);
-		if (bHasCloudDensity || bHasCloudCoverage)
-		{
-			CloudMaterial = UMaterialInstanceDynamic::Create(OriginalMaterial, this);
-			UMaterialInterface* NewMaterial = CloudMaterial;
-			CloudComponent->Material = NewMaterial;
-			bCloudChanged = true;
-		}
-		else
-		{
-			UE_LOG(LogDeverauxCeu, Warning, TEXT("O material das nuvens (%s) nao tem Cloud_GlobalDensity nem Layout_GlobalCoverage: densidade e cobertura ficam como estao."),
-				*OriginalMaterial->GetName());
-		}
-	}
 	if (CloudMaterial)
 	{
 		if (bHasCloudDensity)
@@ -572,11 +594,49 @@ void ADeverauxSkyController::ApplyClouds(const UDeverauxSkySettings& Settings)
 			CloudMaterial->SetScalarParameterValue(CloudCoverageParameter(), CloudCoverageOriginal + Wanted.CoverageOffset);
 		}
 	}
+}
 
-	if (bCloudChanged)
+bool ADeverauxSkyController::SetupCloudMaterial(UVolumetricCloudComponent* CloudComponent)
+{
+	using namespace DeverauxSkyControllerPrivate;
+
+	if (bCheckedCloudMaterial || !CloudComponent)
 	{
+		return false;
+	}
+
+	// Na 5.8 o material fica num ponteiro "soft": enquanto nao carrega, tenta de novo no proximo quadro
+	UMaterialInterface* OriginalMaterial = CloudComponent->Material.Get();
+	if (!OriginalMaterial)
+	{
+		return false;
+	}
+	bCheckedCloudMaterial = true;
+
+	bHasCloudDensity = OriginalMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo(CloudDensityParameter()), CloudDensityOriginal, false);
+	bHasCloudCoverage = OriginalMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo(CloudCoverageParameter()), CloudCoverageOriginal, false);
+	if (!bHasCloudDensity && !bHasCloudCoverage)
+	{
+		UE_LOG(LogDeverauxCeu, Warning, TEXT("O material das nuvens (%s) nao tem Cloud_GlobalDensity nem Layout_GlobalCoverage: densidade e cobertura ficam como estao."),
+			*OriginalMaterial->GetName());
+		return false;
+	}
+
+	// Uma copia so deste jogo: o mapa e o material original nao mudam. A troca passa pelo SetMaterial da
+	// Unreal, que tambem atualiza o ponteiro que o desenho das nuvens usa
+	CloudMaterial = UMaterialInstanceDynamic::Create(OriginalMaterial, this);
+	UMaterialInterface* NewMaterial = CloudMaterial;
+	struct FParams
+	{
+		UMaterialInterface* NewValue;
+	};
+	if (!CallBlueprintSetter(*CloudComponent, TEXT("SetMaterial"), FParams{ NewMaterial }) || CloudComponent->Material.Get() != NewMaterial)
+	{
+		UE_LOG(LogDeverauxCeu, Warning, TEXT("SetMaterial das nuvens nao respondeu: trocando so o ponteiro publico. Se a densidade nao mudar, me avise."));
+		CloudComponent->Material = NewMaterial;
 		CloudComponent->MarkRenderStateDirty();
 	}
+	return true;
 }
 
 FString ADeverauxSkyController::GetCloudDescription() const
@@ -592,7 +652,11 @@ FString ADeverauxSkyController::GetCloudDescription() const
 
 	const auto YesNo = [](bool bValue) { return bValue ? TEXT("sim") : TEXT("nao"); };
 	FString Material(TEXT("o mapa nao tem Volumetric Cloud"));
-	if (Clouds.IsValid())
+	if (Clouds.IsValid() && !bCheckedCloudMaterial)
+	{
+		Material = TEXT("o material das nuvens ainda nao carregou");
+	}
+	else if (Clouds.IsValid())
 	{
 		const FString Density = bHasCloudDensity
 			? FString::Printf(TEXT("densidade %.3f x %.2f = %.3f"), CloudDensityOriginal, AppliedClouds.DensityScale, CloudDensityOriginal * AppliedClouds.DensityScale)
@@ -619,11 +683,12 @@ void ADeverauxSkyController::ApplyLights(const FDeverauxSkyState& State, const U
 		SunIntensity = SunComponent->Intensity;
 	}
 
-	// Cada giro do sol refaz as sombras virtuais dele inteiras, entao ele so gira quando andou o passo
-	const double Cosine = FMath::Clamp(FVector::DotProduct(State.SunDirection, AppliedSunDirection), -1.0, 1.0);
-	const double MovedDegrees = FMath::RadiansToDegrees(FMath::Acos(Cosine));
+	// Cada giro do sol refaz as sombras virtuais dele inteiras, entao as luzes so giram quando um dos
+	// astros andou o passo, ou quando o norte muda (com o relogio parado, nada mais as giraria)
+	const double MovedDegrees = FMath::Max(AngleBetweenDegrees(State.SunDirection, AppliedSunDirection),
+		AngleBetweenDegrees(State.MoonDirection, AppliedMoonDirection));
 	const double StepDegrees = FMath::Max(static_cast<double>(Settings.UpdateStepDegrees), MinStepDegrees);
-	if (bForceRotation || !bHasAppliedRotation || MovedDegrees >= StepDegrees)
+	if (bForceRotation || !bHasAppliedRotation || Settings.NorthYawDegrees != AppliedNorthYaw || MovedDegrees >= StepDegrees)
 	{
 		if (SunComponent)
 		{
@@ -631,6 +696,8 @@ void ADeverauxSkyController::ApplyLights(const FDeverauxSkyState& State, const U
 		}
 		MoonLight->SetWorldRotation(LightRotation(State.MoonDirection, Settings.NorthYawDegrees));
 		AppliedSunDirection = State.SunDirection;
+		AppliedMoonDirection = State.MoonDirection;
+		AppliedNorthYaw = Settings.NorthYawDegrees;
 		bHasAppliedRotation = true;
 	}
 
@@ -735,12 +802,12 @@ void ADeverauxSkyController::ApplyMoonImage(const FDeverauxSkyState& State, cons
 		AppliedMoonAtmosphere = AtmosphereColor;
 	}
 
-	// Tamanho no mundo que da o tamanho angular pedido nessa distancia, com o plano virado para a camera
+	// Tamanho no mundo que da o tamanho angular pedido nessa distancia, com o plano virado para a camera.
+	// Lugar, giro e tamanho numa so atualizacao por quadro
 	const double Distance = DistanceKm * CentimetersPerKm;
 	const double Size = 2.0 * Distance * FMath::Tan(FMath::DegreesToRadians(0.5 * Settings.MoonAngularSizeDegrees));
-	MoonImage->SetWorldLocationAndRotation(CameraLocation + Direction * Distance,
-		FRotationMatrix::MakeFromZX(-Direction, FVector(0.0, 0.0, 1.0)).Rotator());
-	MoonImage->SetWorldScale3D(FVector(Size / PlaneMeshSize));
+	MoonImage->SetWorldTransform(FTransform(FRotationMatrix::MakeFromZX(-Direction, FVector(0.0, 0.0, 1.0)).Rotator(),
+		CameraLocation + Direction * Distance, FVector(Size / PlaneMeshSize)));
 }
 
 void ADeverauxSkyController::ApplyExposure(const FDeverauxSkyState& State, const UDeverauxSkySettings& Settings)

@@ -75,6 +75,9 @@ private:
 	void ApplyMoonImage(const FDeverauxSkyState& State, const UDeverauxSkySettings& Settings);
 	void ApplyClouds(const UDeverauxSkySettings& Settings);
 
+	/** Cria a copia do material das nuvens quando ele ja carregou. Devolve true no quadro em que criou. */
+	bool SetupCloudMaterial(UVolumetricCloudComponent* CloudComponent);
+
 	UPROPERTY(VisibleAnywhere, Category = "Ceu")
 	TObjectPtr<USceneComponent> Root;
 
@@ -118,6 +121,8 @@ private:
 
 	// O que ja foi aplicado, para nao refazer trabalho a cada quadro
 	FVector AppliedSunDirection = FVector(0.0, 0.0, 0.0);
+	FVector AppliedMoonDirection = FVector(0.0, 0.0, 0.0);
+	double AppliedNorthYaw = 0.0;
 	bool bHasAppliedRotation = false;
 	float AppliedMoonIntensity = -1.0f;
 	FLinearColor AppliedMoonColor = FLinearColor(-1.0f, -1.0f, -1.0f);

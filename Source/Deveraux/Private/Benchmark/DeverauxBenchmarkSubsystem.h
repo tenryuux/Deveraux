@@ -64,7 +64,9 @@ public:
 	/** Poe NPCs andando na frente da camera do jogador, sem benchmark, para olhar com calma. 0 tira todos. */
 	bool SetLooseNpcs(int32 Count, bool bOptimized, FString& OutError);
 
-	int32 GetNpcCount() const { return Npcs.Num(); }
+	/** NPCs vivos. Um que caiu do mundo (Kill Z) ou foi destruido por outro motivo nao conta. */
+	int32 GetNpcCount() const;
+
 	const TArray<FDeverauxStepResult>& GetResults() const { return Results; }
 
 	/** Arquivo do ultimo relatorio gravado, vazio se nenhum. */
@@ -84,14 +86,21 @@ private:
 	void SetNpcCount(int32 Count, bool bOptimized);
 	void DestroyNpcs();
 	FTransform NpcSpawnTransform(int32 Index) const;
-	bool TraceGround(const FVector& Location, FVector& OutGround) const;
+
+	/** Chao debaixo do ponto, num raio que sai de AboveCm acima dele (e de bem mais alto, se esse nao achar). false sem chao. */
+	bool TraceGround(const FVector& Location, double AboveCm, FVector& OutGround) const;
 
 	void OverrideGlobals();
 	void RestoreGlobals();
 	void RestoreView();
 	void RestoreClock();
 	UDeverauxClockSubsystem* FindClock() const;
-	FString DescribeContext() const;
+
+	/** O que pode fazer a medida nao valer, uma linha "Aviso: ..." cada, para o relatorio e para a tela. */
+	TArray<FString> CollectWarnings() const;
+
+	/** Cabecalho do relatorio: maquina, ajustes, cena, ceu e os avisos no fim. */
+	FString DescribeContext(const TArray<FString>& Warnings) const;
 
 	EDeverauxBenchmarkPhase Phase = EDeverauxBenchmarkPhase::Idle;
 	FDeverauxBenchmarkOptions Options;
@@ -118,6 +127,8 @@ private:
 	bool bPausedClock = false;
 	bool bSavedClockPaused = false;
 	bool bSavedPawnHidden = false;
+	bool bSavedPawnInput = false;
+	bool bSunTestWasOn = false;
 	TWeakObjectPtr<APlayerController> PlayerController;
 	TWeakObjectPtr<AActor> SavedViewTarget;
 	TWeakObjectPtr<APawn> HiddenPawn;

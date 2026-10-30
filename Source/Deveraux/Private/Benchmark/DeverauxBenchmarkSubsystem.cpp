@@ -5,7 +5,9 @@
 #include "Benchmark/DeverauxBenchmarkNpc.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Ceu/DeverauxSkyController.h"
 #include "Ceu/DeverauxSkySettings.h"
+#include "Ceu/DeverauxSkySubsystem.h"
 #include "CollisionQueryParams.h"
 #include "Components/CapsuleComponent.h"
 #include "Engine/Engine.h"
@@ -31,6 +33,19 @@
 #include "ProfilingDebugging/CsvProfiler.h"
 #include "Relogio/DeverauxClockSubsystem.h"
 #include "UnrealClient.h"
+
+int32 UDeverauxBenchmarkSubsystem::GetNpcCount() const
+{
+	int32 Count = 0;
+	for (const TWeakObjectPtr<ADeverauxBenchmarkNpc>& Npc : Npcs)
+	{
+		if (Npc.IsValid())
+		{
+			++Count;
+		}
+	}
+	return Count;
+}
 
 #if !UE_BUILD_SHIPPING
 
@@ -58,9 +73,23 @@ namespace DeverauxBenchmarkSubsystemPrivate
 	constexpr int32 SpawnSeedStride = 7919;
 	constexpr int32 MaxLooseNpcs = 500;
 	constexpr double CentimetersPerMeter = 100.0;
-	constexpr double GroundTraceUp = 5000.0;
-	constexpr double GroundTraceDown = 50000.0;
 	constexpr double SpawnLift = 5.0;
+
+	/**
+	 * O chao e achado com um raio para baixo que sai de pouco acima do ponto, para passar por baixo de telhado,
+	 * marquise, ponte ou copa de arvore. Se ele nao acha chao (o terreno ali e mais alto, numa subida), sai de
+	 * FallbackTraceAbove. Para a camera: acima do Player Start, que ja fica no meio da capsula do jogador.
+	 */
+	constexpr double CameraTraceAbove = 100.0;
+
+	/** Na area da multidao, acima do chao da camera: cobre degraus e rampas pequenas. */
+	constexpr double CrowdTraceAbove = 200.0;
+
+	/** Os NPCs soltos: a area fica na altura da camera do jogador, que esta no ar livre, e o raio sai dali. */
+	constexpr double LooseCrowdTraceAbove = 0.0;
+
+	constexpr double FallbackTraceAbove = 5000.0;
+	constexpr double GroundTraceDown = 50000.0;
 
 	struct FVariableOverride
 	{
@@ -121,7 +150,7 @@ namespace DeverauxBenchmarkSubsystemPrivate
 		}
 	}
 
-	/** Relatorio na tela, de cima para baixo, com a ultima linha (o resultado) em verde ou vermelho. */
+	/** Relatorio na tela, de cima para baixo: avisos em amarelo e a ultima linha (o resultado) em verde ou vermelho. */
 	void ShowReport(const TArray<FString>& Lines, bool bPassed)
 	{
 		if (!GEngine)
@@ -132,7 +161,8 @@ namespace DeverauxBenchmarkSubsystemPrivate
 		for (int32 Index = 0; Index < Lines.Num(); ++Index)
 		{
 			const bool bLast = Index == Lines.Num() - 1;
-			const FColor Color = bLast ? (bPassed ? FColor::Green : FColor::Red) : FColor::White;
+			const FColor Color = bLast ? (bPassed ? FColor::Green : FColor::Red)
+				: (Lines[Index].StartsWith(TEXT("Aviso:")) ? FColor::Yellow : FColor::White);
 			GEngine->AddOnScreenDebugMessage(-1, ReportMessageSeconds, Color, Lines[Index], false);
 		}
 	}
@@ -247,8 +277,8 @@ bool UDeverauxBenchmarkSubsystem::SetLooseNpcs(int32 Count, bool bOptimized, FSt
 		return false;
 	}
 
-	// Uma area nova na frente da camera quando ainda nao ha NPCs soltos; com eles, a area fica onde esta
-	if (Count > 0 && Npcs.Num() == 0)
+	// Uma area nova na frente da camera quando nao ha NPCs soltos vivos; com eles, a area fica onde esta
+	if (Count > 0 && GetNpcCount() == 0)
 	{
 		const UDeverauxBenchmarkSettings* Settings = GetDefault<UDeverauxBenchmarkSettings>();
 		FVector ViewLocation = FVector::ZeroVector;
@@ -256,7 +286,7 @@ bool UDeverauxBenchmarkSubsystem::SetLooseNpcs(int32 Count, bool bOptimized, FSt
 		Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
 		CrowdRadius = Settings->CrowdRadiusMeters * CentimetersPerMeter;
 		CrowdCenter = ViewLocation + FRotator(0.0, ViewRotation.Yaw, 0.0).Vector() * (Settings->CrowdDistanceMeters * CentimetersPerMeter);
-		TraceGround(CrowdCenter, CrowdCenter);
+		TraceGround(CrowdCenter, LooseCrowdTraceAbove, CrowdCenter);
 	}
 	SetNpcCount(FMath::Clamp(Count, 0, MaxLooseNpcs), bOptimized);
 	return true;
@@ -345,7 +375,7 @@ bool UDeverauxBenchmarkSubsystem::BeginRun(FString& OutError)
 		}
 	}
 	FVector Ground = Origin;
-	TraceGround(Origin, Ground);
+	TraceGround(Origin, CameraTraceAbove, Ground);
 
 	CameraLocation = Ground + FVector(0.0, 0.0, Settings->CameraHeight);
 	CameraYaw = Yaw;
@@ -367,7 +397,7 @@ bool UDeverauxBenchmarkSubsystem::BeginRun(FString& OutError)
 
 	CrowdRadius = Settings->CrowdRadiusMeters * CentimetersPerMeter;
 	CrowdCenter = Ground + FRotator(0.0, Yaw, 0.0).Vector() * (Settings->CrowdDistanceMeters * CentimetersPerMeter);
-	TraceGround(CrowdCenter, CrowdCenter);
+	TraceGround(CrowdCenter, CrowdTraceAbove, CrowdCenter);
 	bNpcsOptimized = false;
 
 	PlayerController = Controller;
@@ -379,6 +409,7 @@ bool UDeverauxBenchmarkSubsystem::BeginRun(FString& OutError)
 	{
 		HiddenPawn = Pawn;
 		bSavedPawnHidden = Pawn->IsHidden();
+		bSavedPawnInput = Pawn->InputEnabled();
 		Pawn->SetActorHiddenInGame(true);
 		Pawn->DisableInput(Controller);
 	}
@@ -389,6 +420,8 @@ bool UDeverauxBenchmarkSubsystem::BeginRun(FString& OutError)
 		bPausedClock = true;
 	}
 
+	// O teste do sol desliga pecas da imagem e deixa assim ate o proximo passo dele: aqui mede a imagem inteira
+	bSunTestWasOn = UDeverauxSkySubsystem::ResetSunTest();
 	OverrideGlobals();
 	bEnabledStatUnit = !IsStatUnitOn(*Viewport);
 	if (bEnabledStatUnit)
@@ -446,7 +479,7 @@ void UDeverauxBenchmarkSubsystem::FinishStep()
 	FDeverauxStepResult& Result = Results.AddDefaulted_GetRef();
 	Result.Hour = CurrentHour;
 	Result.bTwilight = Step.bTwilight;
-	Result.NpcCount = Npcs.Num();
+	Result.NpcCount = GetNpcCount();
 	Result.bOptimizedNpcs = Step.bOptimizedNpcs;
 	Result.bCountsForResult = Step.bCountsForResult;
 	DeverauxBenchmark::Summarize(Samples, Result);
@@ -467,8 +500,9 @@ void UDeverauxBenchmarkSubsystem::FinishRun()
 {
 	using namespace DeverauxBenchmarkSubsystemPrivate;
 
-	// O contexto le as console variables e os NPCs antes de tudo voltar ao normal
-	const FString Context = DescribeContext();
+	// Contexto e avisos leem as console variables e os NPCs antes de tudo voltar ao normal
+	const TArray<FString> Warnings = CollectWarnings();
+	const FString Context = DescribeContext(Warnings);
 	DestroyNpcs();
 	RestoreView();
 	RestoreClock();
@@ -504,6 +538,7 @@ void UDeverauxBenchmarkSubsystem::FinishRun()
 	Screen.Add(bSaved
 		? FString::Printf(TEXT("Benchmark terminado. Relatorio: %s"), *TextPath)
 		: FString(TEXT("Benchmark terminado, mas nao deu para gravar o relatorio em Saved/Benchmark.")));
+	Screen.Append(Warnings);
 	Screen.Append(Table);
 	Screen.Append(Summary);
 	ShowReport(Screen, bPassed);
@@ -559,7 +594,7 @@ void UDeverauxBenchmarkSubsystem::ShowProgress(double SecondsLeft) const
 	FDeverauxStepResult Preview;
 	Preview.Hour = CurrentHour;
 	Preview.bTwilight = Step.bTwilight;
-	Preview.NpcCount = Npcs.Num();
+	Preview.NpcCount = GetNpcCount();
 	Preview.bOptimizedNpcs = Step.bOptimizedNpcs;
 	ShowMessage(ProgressMessageKey, ProgressMessageSeconds, FColor::Cyan, FString::Printf(TEXT("Benchmark %d/%d: %s | %s, %d s | Deveraux.Benchmark.Parar cancela"),
 		StepIndex + 1, Steps.Num(), *Preview.Describe(), Phase == EDeverauxBenchmarkPhase::Warmup ? TEXT("aquecendo") : TEXT("medindo"),
@@ -634,7 +669,7 @@ FTransform UDeverauxBenchmarkSubsystem::NpcSpawnTransform(int32 Index) const
 	const double Distance = CrowdRadius * FMath::Sqrt(Random.FRand());
 	FVector Location = CrowdCenter + FVector(FMath::Cos(Angle) * Distance, FMath::Sin(Angle) * Distance, 0.0);
 	FVector Ground = Location;
-	if (TraceGround(Location, Ground))
+	if (TraceGround(Location, CrowdTraceAbove, Ground))
 	{
 		Location = Ground;
 	}
@@ -642,7 +677,7 @@ FTransform UDeverauxBenchmarkSubsystem::NpcSpawnTransform(int32 Index) const
 	return FTransform(FRotator(0.0, Random.FRandRange(-180.0f, 180.0f), 0.0), Location);
 }
 
-bool UDeverauxBenchmarkSubsystem::TraceGround(const FVector& Location, FVector& OutGround) const
+bool UDeverauxBenchmarkSubsystem::TraceGround(const FVector& Location, double AboveCm, FVector& OutGround) const
 {
 	using namespace DeverauxBenchmarkSubsystemPrivate;
 
@@ -652,14 +687,19 @@ bool UDeverauxBenchmarkSubsystem::TraceGround(const FVector& Location, FVector& 
 		return false;
 	}
 
-	// So o que e cenario (WorldStatic): NPCs e o jogador nao contam como chao
-	FHitResult Hit;
+	// So o que e cenario (WorldStatic): NPCs e o jogador nao contam como chao. Um raio que comeca dentro de um bloco
+	// macico acerta no proprio comeco (bStartPenetrating), e nao e chao: ai vale o raio de cima, que para em cima dele
 	const FCollisionQueryParams Params(FName(TEXT("DeverauxBenchmarkChao")), false);
-	if (World->LineTraceSingleByObjectType(Hit, Location + FVector(0.0, 0.0, GroundTraceUp), Location - FVector(0.0, 0.0, GroundTraceDown),
-		FCollisionObjectQueryParams(ECC_WorldStatic), Params))
+	const double StartsAbove[] = { AboveCm, FallbackTraceAbove };
+	for (const double Above : StartsAbove)
 	{
-		OutGround = Hit.ImpactPoint;
-		return true;
+		FHitResult Hit;
+		if (World->LineTraceSingleByObjectType(Hit, Location + FVector(0.0, 0.0, Above), Location - FVector(0.0, 0.0, GroundTraceDown),
+			FCollisionObjectQueryParams(ECC_WorldStatic), Params) && !Hit.bStartPenetrating)
+		{
+			OutGround = Hit.ImpactPoint;
+			return true;
+		}
 	}
 	return false;
 }
@@ -742,10 +782,11 @@ void UDeverauxBenchmarkSubsystem::RestoreView()
 	}
 	Camera.Reset();
 
+	// O controle so volta se o jogador tinha antes: um menu ou uma cena podem ter tirado
 	if (APawn* Pawn = HiddenPawn.Get())
 	{
 		Pawn->SetActorHiddenInGame(bSavedPawnHidden);
-		if (Controller)
+		if (Controller && bSavedPawnInput)
 		{
 			Pawn->EnableInput(Controller);
 		}
@@ -774,7 +815,56 @@ UDeverauxClockSubsystem* UDeverauxBenchmarkSubsystem::FindClock() const
 	return GameInstance ? GameInstance->GetSubsystem<UDeverauxClockSubsystem>() : nullptr;
 }
 
-FString UDeverauxBenchmarkSubsystem::DescribeContext() const
+TArray<FString> UDeverauxBenchmarkSubsystem::CollectWarnings() const
+{
+	const UWorld* World = GetWorld();
+	const UDeverauxBenchmarkSettings* Settings = GetDefault<UDeverauxBenchmarkSettings>();
+	TArray<FString> Warnings;
+
+	// A meta vale para uma tela so: em outra, a GPU desenha mais ou menos pixels
+	FVector2D ViewportSize(0.0, 0.0);
+	if (const UGameViewportClient* Viewport = World ? World->GetGameViewport() : nullptr)
+	{
+		Viewport->GetViewportSize(ViewportSize);
+	}
+	const int32 Width = FMath::RoundToInt(static_cast<float>(ViewportSize.X));
+	const int32 Height = FMath::RoundToInt(static_cast<float>(ViewportSize.Y));
+	const FIntPoint& TargetSize = Settings->TargetResolution;
+	if (TargetSize.X > 0 && TargetSize.Y > 0 && (Width != TargetSize.X || Height != TargetSize.Y))
+	{
+		Warnings.Add(FString::Printf(TEXT("Aviso: a tela esta em %dx%d, mas a meta e %dx%d: estes tempos nao comparam com ela. No jogo, r.SetRes %dx%df no console; no editor, Play em New Editor Window de %dx%d (Editor Preferences > Play)."),
+			Width, Height, TargetSize.X, TargetSize.Y, TargetSize.X, TargetSize.Y, TargetSize.X, TargetSize.Y));
+	}
+	if (!GetDefault<UDeverauxSkySettings>()->bEnabled)
+	{
+		Warnings.Add(TEXT("Aviso: o ciclo dia/noite esta desligado (Project Settings > Game > Deveraux Ceu): as horas dos passos nao mudam o ceu."));
+	}
+	if (bNpcMeshMissing)
+	{
+		Warnings.Add(TEXT("Aviso: a malha dos NPCs nao carregou e eles viraram cilindros. No jogo empacotado, a pasta dela precisa estar em Additional Asset Directories to Cook."));
+	}
+	for (const TWeakObjectPtr<ADeverauxBenchmarkNpc>& Weak : Npcs)
+	{
+		const ADeverauxBenchmarkNpc* Npc = Weak.Get();
+		const ADeverauxBenchmarkNpcController* NpcController = Npc ? Cast<ADeverauxBenchmarkNpcController>(Npc->GetController()) : nullptr;
+		if (NpcController && NpcController->IsSteeringDirectly())
+		{
+			Warnings.Add(TEXT("Aviso: o mapa nao tem sistema de navegacao, e os NPCs andaram em linha reta por conta propria."));
+			break;
+		}
+	}
+	if (bStatUnitMissing)
+	{
+		Warnings.Add(TEXT("Aviso: o stat unit nao respondeu; so o tempo do quadro foi medido."));
+	}
+	if (GIsEditor)
+	{
+		Warnings.Add(TEXT("Aviso: no editor os tempos saem maiores que no jogo. Para valer, rode no jogo empacotado."));
+	}
+	return Warnings;
+}
+
+FString UDeverauxBenchmarkSubsystem::DescribeContext(const TArray<FString>& Warnings) const
 {
 	using namespace DeverauxBenchmarkSubsystemPrivate;
 
@@ -825,28 +915,23 @@ FString UDeverauxBenchmarkSubsystem::DescribeContext() const
 		Lines.Add(FString::Printf(TEXT("NPCs: %s com %s"), *Settings->NpcMesh.GetAssetName(),
 			Settings->NpcAnimClass.IsNull() ? TEXT("nenhuma animacao") : *Settings->NpcAnimClass.GetAssetName()));
 	}
-	if (bNpcMeshMissing)
+
+	// O ceu e metade do custo da GPU: sem estes ajustes, duas rodadas nao comparam
+	const UDeverauxSkySubsystem* SkySubsystem = World ? World->GetSubsystem<UDeverauxSkySubsystem>() : nullptr;
+	if (const ADeverauxSkyController* SkyController = SkySubsystem ? SkySubsystem->GetController() : nullptr)
 	{
-		Lines.Add(TEXT("Aviso: a malha dos NPCs nao carregou e eles viraram cilindros. No jogo empacotado, a pasta dela precisa estar em Additional Asset Directories to Cook."));
+		Lines.Add(TEXT("Ceu: ") + SkyController->GetCloudDescription());
+		Lines.Add(TEXT("Ceu: ") + SkyController->GetLightDescription());
 	}
-	for (const TWeakObjectPtr<ADeverauxBenchmarkNpc>& Weak : Npcs)
+	else
 	{
-		const ADeverauxBenchmarkNpc* Npc = Weak.Get();
-		const ADeverauxBenchmarkNpcController* NpcController = Npc ? Cast<ADeverauxBenchmarkNpcController>(Npc->GetController()) : nullptr;
-		if (NpcController && NpcController->IsSteeringDirectly())
-		{
-			Lines.Add(TEXT("Aviso: o mapa nao tem sistema de navegacao, e os NPCs andaram em linha reta por conta propria."));
-			break;
-		}
+		Lines.Add(TEXT("Ceu: sem o controlador do ceu"));
 	}
-	if (bStatUnitMissing)
+	if (bSunTestWasOn)
 	{
-		Lines.Add(TEXT("Aviso: o stat unit nao respondeu; so o tempo do quadro foi medido."));
+		Lines.Add(TEXT("O teste do sol estava ligado e foi desligado antes de medir (o Deveraux.Ceu.TesteSol recomeca do 1)."));
 	}
-	if (GIsEditor)
-	{
-		Lines.Add(TEXT("Aviso: no editor os tempos saem maiores que no jogo. Para valer, rode no jogo empacotado."));
-	}
+	Lines.Append(Warnings);
 
 	return FString::Join(Lines, LINE_TERMINATOR) + LINE_TERMINATOR + LINE_TERMINATOR;
 }
@@ -864,18 +949,6 @@ namespace DeverauxBenchmarkSubsystemPrivate
 		return Benchmark;
 	}
 
-	bool HasOption(const TArray<FString>& Args, const TCHAR* Option)
-	{
-		for (const FString& Arg : Args)
-		{
-			if (Arg.Equals(Option, ESearchCase::IgnoreCase))
-			{
-				return true;
-			}
-		}
-		return false;
-	}
-
 	void ReportError(const FString& Error, FOutputDevice& Ar)
 	{
 		Ar.Log(*Error);
@@ -889,10 +962,29 @@ namespace DeverauxBenchmarkSubsystemPrivate
 		{
 			return;
 		}
+
+		// Uma opcao digitada errada (com acento, por exemplo) rodaria o benchmark inteiro sem ela: recusa e diz as certas
 		FDeverauxBenchmarkOptions CommandOptions;
-		CommandOptions.bQuitWhenDone = HasOption(Args, TEXT("sair"));
-		CommandOptions.bQuick = HasOption(Args, TEXT("rapido"));
-		CommandOptions.bCsvProfile = HasOption(Args, TEXT("csv"));
+		for (const FString& Arg : Args)
+		{
+			if (Arg.Equals(TEXT("rapido"), ESearchCase::IgnoreCase))
+			{
+				CommandOptions.bQuick = true;
+			}
+			else if (Arg.Equals(TEXT("csv"), ESearchCase::IgnoreCase))
+			{
+				CommandOptions.bCsvProfile = true;
+			}
+			else if (Arg.Equals(TEXT("sair"), ESearchCase::IgnoreCase))
+			{
+				CommandOptions.bQuitWhenDone = true;
+			}
+			else
+			{
+				ReportError(FString::Printf(TEXT("Opcao desconhecida: %s. As opcoes sao rapido, csv e sair, sem acento."), *Arg), Ar);
+				return;
+			}
+		}
 		FString Error;
 		if (Benchmark->Start(CommandOptions, Error))
 		{
@@ -932,8 +1024,21 @@ namespace DeverauxBenchmarkSubsystemPrivate
 			Ar.Log(TEXT("Uso: Deveraux.Benchmark.Npcs <quantos> [otimizado]. 0 tira todos."));
 			return;
 		}
+		bool bOptimized = false;
+		for (int32 Index = 1; Index < Args.Num(); ++Index)
+		{
+			if (Args[Index].Equals(TEXT("otimizado"), ESearchCase::IgnoreCase) || Args[Index].Equals(TEXT("otimizados"), ESearchCase::IgnoreCase))
+			{
+				bOptimized = true;
+			}
+			else
+			{
+				ReportError(FString::Printf(TEXT("Opcao desconhecida: %s. Uso: Deveraux.Benchmark.Npcs <quantos> [otimizado]."), *Args[Index]), Ar);
+				return;
+			}
+		}
 		FString Error;
-		if (!Benchmark->SetLooseNpcs(FCString::Atoi(*Args[0]), HasOption(Args, TEXT("otimizado")), Error))
+		if (!Benchmark->SetLooseNpcs(FCString::Atoi(*Args[0]), bOptimized, Error))
 		{
 			ReportError(Error, Ar);
 			return;

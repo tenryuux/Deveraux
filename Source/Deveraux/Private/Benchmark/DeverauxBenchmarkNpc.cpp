@@ -212,6 +212,12 @@ void ADeverauxBenchmarkNpcController::MoveToRandomPoint()
 
 void ADeverauxBenchmarkNpcController::StartSteering(const FVector& Target)
 {
+	// Andando sozinho, a proxima saida so e agendada na chegada. O pedido recusado ja avisou o fim (OnMoveCompleted)
+	// e agendou uma: ela sai, ou o NPC trocaria de destino no meio do caminho
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(PauseTimer);
+	}
 	SteerTarget = Target;
 	SteerSecondsLeft = DeverauxBenchmarkNpcPrivate::MaxSteerSeconds;
 	bSteering = true;

@@ -197,6 +197,13 @@ namespace DeverauxSkySubsystemPrivate
 	}
 }
 
+bool UDeverauxSkySubsystem::ResetSunTest()
+{
+	const bool bWasOn = DeverauxSkySubsystemPrivate::SunTestStep > 0;
+	DeverauxSkySubsystemPrivate::RestoreSunTest();
+	return bWasOn;
+}
+
 static FAutoConsoleCommandWithWorldArgsAndOutputDevice GDeverauxCeuInfoCommand(
 	TEXT("Deveraux.Ceu.Info"),
 	TEXT("Mostra a altura do sol e da lua, quanto e dia e quais pecas do mapa o ceu esta usando."),
@@ -208,4 +215,12 @@ static FAutoConsoleCommandWithWorldArgsAndOutputDevice GDeverauxCeuTesteSolComma
 	TEXT("Desliga, uma de cada vez, as pecas da imagem que podem fazer o sol tremer. Sem numero: a proxima. 0: tudo normal."),
 	FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(&DeverauxSkySubsystemPrivate::SunTestCommand),
 	ECVF_Default);
+
+#else // UE_BUILD_SHIPPING
+
+bool UDeverauxSkySubsystem::ResetSunTest()
+{
+	return false;
+}
+
 #endif // !UE_BUILD_SHIPPING

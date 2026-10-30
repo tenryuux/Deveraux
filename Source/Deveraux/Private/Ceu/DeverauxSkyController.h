@@ -26,6 +26,8 @@ struct FDeverauxCloudSettings
 	bool bShadows = false;
 	float ShadowStrength = 0.0f;
 	float ShadowExtentKm = 0.0f;
+	float ShadowResolutionScale = 0.0f;
+	float ShadowAtmosphereStrength = 0.0f;
 	bool bSkyOcclusion = false;
 	bool bLightShafts = false;
 	float DensityScale = 0.0f;
@@ -35,8 +37,24 @@ struct FDeverauxCloudSettings
 	bool Equals(const FDeverauxCloudSettings& Other) const
 	{
 		return bShadows == Other.bShadows && ShadowStrength == Other.ShadowStrength && ShadowExtentKm == Other.ShadowExtentKm
+			&& ShadowResolutionScale == Other.ShadowResolutionScale && ShadowAtmosphereStrength == Other.ShadowAtmosphereStrength
 			&& bSkyOcclusion == Other.bSkyOcclusion && bLightShafts == Other.bLightShafts && DensityScale == Other.DensityScale
 			&& CoverageOffset == Other.CoverageOffset && BottomOcclusion == Other.BottomOcclusion;
+	}
+};
+
+/** Neblina volumetrica da Exponential Height Fog: a do Project Settings, ou a original do mapa. */
+struct FDeverauxVolumetricFogSettings
+{
+	bool bEnabled = false;
+	float DistanceCm = 0.0f;
+	float ExtinctionScale = 0.0f;
+	float ScatteringDistribution = 0.0f;
+
+	bool Equals(const FDeverauxVolumetricFogSettings& Other) const
+	{
+		return bEnabled == Other.bEnabled && DistanceCm == Other.DistanceCm && ExtinctionScale == Other.ExtinctionScale
+			&& ScatteringDistribution == Other.ScatteringDistribution;
 	}
 };
 
@@ -64,6 +82,9 @@ public:
 	/** O que o ceu fez com as nuvens, para o comando Deveraux.Ceu.Info. */
 	FString GetCloudDescription() const;
 
+	/** O que esta de fato nas luzes e na neblina agora (lido delas, nao do Project Settings), para o Deveraux.Ceu.Info. */
+	FString GetLightDescription() const;
+
 private:
 	void FindSceneComponents();
 	void ConfigureSceneComponents();
@@ -74,6 +95,7 @@ private:
 	void ApplyMaterialParameters(double TimeOfDayFraction, const FDeverauxSkyState& State);
 	void ApplyMoonImage(const FDeverauxSkyState& State, const UDeverauxSkySettings& Settings);
 	void ApplyClouds(const UDeverauxSkySettings& Settings);
+	void ApplyVolumetricFog(const UDeverauxSkySettings& Settings);
 
 	/** Cria a copia do material das nuvens quando ele ja carregou. Devolve true no quadro em que criou. */
 	bool SetupCloudMaterial(UVolumetricCloudComponent* CloudComponent);
@@ -143,6 +165,12 @@ private:
 	bool bHasCloudDensity = false;
 	bool bHasCloudCoverage = false;
 	bool bCheckedCloudMaterial = false;
+
+	// Neblina volumetrica: como o mapa veio (volta a isso quando desligada) e o que ja foi aplicado
+	FDeverauxVolumetricFogSettings VolumetricFogOriginal;
+	FDeverauxVolumetricFogSettings AppliedVolumetricFog;
+	bool bHasAppliedVolumetricFog = false;
+
 	bool bMoonImageVisible = false;
 	bool bHasMoonImage = false;
 };

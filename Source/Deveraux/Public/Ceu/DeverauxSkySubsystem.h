@@ -24,6 +24,7 @@ class DEVERAUX_API UDeverauxSkySubsystem : public UWorldSubsystem
 
 public:
 	virtual void OnWorldBeginPlay(UWorld& InWorld) override;
+	virtual void Deinitialize() override;
 
 	/** Sol, lua e quanto ainda e dia, agora. */
 	FDeverauxSkyState GetSkyState() const;

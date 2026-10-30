@@ -59,20 +59,21 @@ public:
 
 	/**
 	 * Opcional. Material com a imagem da lua (Unlit, Masked, Two Sided). Com ele, a lua aparece como essa
-	 * imagem; sem ele, como um disco branco igual ao do sol. Lido quando o jogo comeca.
-	 * O codigo preenche o parametro escalar DeverauxLuaLux com a intensidade da luz da lua: multiplique a
-	 * cor emissiva por ele, para o brilho acompanhar a exposicao da noite.
+	 * imagem, sempre logo atras das nuvens; sem ele, como um disco branco igual ao do sol. Lido quando o
+	 * jogo comeca. Multiplique a cor emissiva pelos dois parametros que o codigo preenche:
+	 * DeverauxLuaLux (escalar), a intensidade da luz da lua, para o brilho acompanhar a exposicao da noite;
+	 * DeverauxLuaAtmosfera (vetor), o que a atmosfera faz com a lua: mais fraca e alaranjada perto do horizonte.
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Lua")
 	TSoftObjectPtr<UMaterialInterface> MoonMaterial;
 
 	/**
-	 * Distancia da imagem da lua ate a camera, em km. 0 = automatico: logo acima do topo das nuvens,
-	 * para elas passarem na frente. Mais longe, a nevoa da atmosfera cobre mais a lua; mais perto que
-	 * o topo das nuvens, a lua aparece na frente delas.
+	 * Forca da atmosfera na imagem da lua (parametro DeverauxLuaAtmosfera). 1 = igual a luz da lua: no alto
+	 * quase nao muda, perto do horizonte fica mais fraca e alaranjada. 0 = a imagem nao muda com a altura.
+	 * 2 = o dobro de ar. A neblina e as nuvens passam na frente de qualquer jeito.
 	 */
-	UPROPERTY(Config, EditAnywhere, Category = "Lua", meta = (ClampMin = "0", ClampMax = "60"))
-	float MoonImageDistanceKm = 0.0f;
+	UPROPERTY(Config, EditAnywhere, Category = "Lua", meta = (ClampMin = "0", ClampMax = "4"))
+	float MoonAtmosphereStrength = 1.0f;
 
 	/** Sombra da lua. So uma luz faz sombra por vez: a lua faz sombra quando esta mais alta que o sol. */
 	UPROPERTY(Config, EditAnywhere, Category = "Lua")

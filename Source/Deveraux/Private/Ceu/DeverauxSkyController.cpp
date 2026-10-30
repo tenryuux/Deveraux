@@ -7,13 +7,16 @@
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/PostProcessComponent.h"
+#include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/VolumetricCloudComponent.h"
+#include "DeverauxAtmosphere.h"
 #include "Engine/GameInstance.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
@@ -39,12 +42,13 @@ namespace DeverauxSkyControllerPrivate
 	constexpr double CentimetersPerKm = 100000.0;
 
 	/**
-	 * Distancia da imagem da lua, em km. Ela fica logo acima do topo das nuvens, na direcao da lua:
-	 * as nuvens passam na frente, e a nevoa da atmosfera (perspectiva aerea), que cresce com a
-	 * distancia e apagava a lua a 60 km, fica o mais fraca possivel.
+	 * Distancia da imagem da lua, em km. Ela fica logo atras do topo das nuvens, na direcao da lua:
+	 * todas as nuvens passam na frente, e a nevoa da atmosfera (perspectiva aerea), que apagava a
+	 * lua a 60 km, fica o mais fraca possivel. Perto do horizonte esse ponto fica bem longe; alem do
+	 * maximo nem as nuvens sao desenhadas.
 	 */
 	constexpr double MoonImageMinDistanceKm = 5.0;
-	constexpr double MoonImageMaxDistanceKm = 60.0;
+	constexpr double MoonImageMaxDistanceKm = 200.0;
 	constexpr double MoonAboveCloudsMarginKm = 1.0;
 
 	/** Topo das nuvens quando o mapa nao tem nuvens volumetricas, em km (o padrao da Unreal: 5 + 10). */
@@ -55,6 +59,66 @@ namespace DeverauxSkyControllerPrivate
 
 	/** Abaixo desta altura a imagem da lua some, para nao aparecer por baixo do horizonte. */
 	constexpr double MoonImageHideDegrees = -3.0;
+
+	/** Com menos luz que isto passando pelo ar, a imagem some: a lua ja se pos atras do horizonte. */
+	constexpr double MinVisibleTint = 0.01;
+
+	/** Amostras para estimar a perspectiva aerea entre a camera e a imagem da lua. */
+	constexpr int32 AerialPerspectiveSamples = 32;
+
+	/** A compensacao da perspectiva aerea nunca multiplica a lua por mais que 1 / isto. */
+	constexpr double MinCompensatedTransmittance = 0.1;
+
+	FVector ToVector(const FLinearColor& Color)
+	{
+		return FVector(Color.R, Color.G, Color.B);
+	}
+
+	/** Os numeros do Sky Atmosphere do mapa, como a Unreal usa. */
+	FDeverauxAtmosphereParams MakeAtmosphereParams(const USkyAtmosphereComponent& Atmosphere)
+	{
+		FDeverauxAtmosphereParams Params;
+		Params.GroundRadiusKm = Atmosphere.BottomRadius;
+		Params.AtmosphereHeightKm = Atmosphere.AtmosphereHeight;
+		Params.RayleighScattering = ToVector(Atmosphere.RayleighScattering) * Atmosphere.RayleighScatteringScale;
+		Params.RayleighScaleHeightKm = Atmosphere.RayleighExponentialDistribution;
+		Params.MieExtinction = ToVector(Atmosphere.MieScattering) * Atmosphere.MieScatteringScale
+			+ ToVector(Atmosphere.MieAbsorption) * Atmosphere.MieAbsorptionScale;
+		Params.MieScaleHeightKm = Atmosphere.MieExponentialDistribution;
+		Params.OzoneAbsorption = ToVector(Atmosphere.OtherAbsorption) * Atmosphere.OtherAbsorptionScale;
+		Params.OzoneTipAltitudeKm = Atmosphere.OtherTentDistribution.TipAltitude;
+		Params.OzoneTipValue = Atmosphere.OtherTentDistribution.TipValue;
+		Params.OzoneWidthKm = Atmosphere.OtherTentDistribution.Width;
+		return Params;
+	}
+
+	/** Altura (Z, em cm) do chao no topo do planeta, que e onde o mapa fica. As nuvens contam a altitude dai. */
+	double PlanetTopZ(const USkyAtmosphereComponent* Atmosphere)
+	{
+		if (!Atmosphere)
+		{
+			return 0.0;
+		}
+		switch (Atmosphere->TransformMode)
+		{
+		case ESkyAtmosphereTransformMode::PlanetTopAtComponentTransform:
+			return Atmosphere->GetComponentLocation().Z;
+		case ESkyAtmosphereTransformMode::PlanetCenterAtComponentTransform:
+			return Atmosphere->GetComponentLocation().Z + Atmosphere->BottomRadius * CentimetersPerKm;
+		default:
+			return 0.0;
+		}
+	}
+
+	/** Quanto de uma cor chega comparado com o zenite, elevado a forca pedida (2 = o dobro de ar). */
+	double RelativeTransmittance(double Toward, double Zenith, double Strength)
+	{
+		if (Zenith <= 1.e-12)
+		{
+			return 1.0;
+		}
+		return FMath::Pow(FMath::Clamp(Toward / Zenith, 0.0, 1.0), Strength);
+	}
 
 	void UpdateLightState(UDirectionalLightComponent* Light, double ElevationDegrees, bool bAllowShadows, double TwilightDegrees)
 	{
@@ -155,10 +219,15 @@ FString ADeverauxSkyController::GetDebugDescription() const
 	const AActor* SunOwner = SunComponent ? SunComponent->GetOwner() : nullptr;
 	const bool bSunShadows = SunComponent && SunComponent->GetVisibleFlag() && SunComponent->CastShadows;
 	const bool bMoonShadows = MoonLight->GetVisibleFlag() && MoonLight->CastShadows;
-	const FString MoonText = !bHasMoonImage ? FString(TEXT("disco"))
-		: (bMoonImageVisible ? FString::Printf(TEXT("imagem a %.1f km"), AppliedMoonDistanceKm) : FString(TEXT("imagem, abaixo do horizonte")));
+	FString MoonText(TEXT("disco"));
+	if (bHasMoonImage)
+	{
+		MoonText = !bMoonImageVisible ? FString(TEXT("imagem, abaixo do horizonte"))
+			: FString::Printf(TEXT("imagem a %.1f km, DeverauxLuaAtmosfera %.2f %.2f %.2f (ar ate ela %.2f)"), AppliedMoonDistanceKm,
+				AppliedMoonAtmosphere.R, AppliedMoonAtmosphere.G, AppliedMoonAtmosphere.B, MoonAerialTransmittance);
+	}
 
-	return FString::Printf(TEXT("sol do mapa: %s, %.2f lux | sombra: %s | lua: %s, %.2f lux | exposicao %.2f EV | sky light: %s | neblina: %s | nuvens: %s"),
+	return FString::Printf(TEXT("sol do mapa: %s, %.2f lux | sombra: %s | lua: %s, %.2f lux | exposicao %.2f EV | sky light: %s | neblina: %s | nuvens: %s | atmosfera: %s"),
 		SunOwner ? *SunOwner->GetActorNameOrLabel() : TEXT("nenhum"),
 		SunIntensity,
 		bSunShadows ? TEXT("sol") : (bMoonShadows ? TEXT("lua") : TEXT("nenhuma")),
@@ -167,7 +236,8 @@ FString ADeverauxSkyController::GetDebugDescription() const
 		Exposure->bEnabled ? Exposure->Settings.AutoExposureBias : 0.0f,
 		SkyLight.IsValid() ? TEXT("sim") : TEXT("nao"),
 		Fog.IsValid() ? TEXT("sim") : TEXT("nao"),
-		Clouds.IsValid() ? TEXT("sim") : TEXT("nao"));
+		Clouds.IsValid() ? TEXT("sim") : TEXT("nao"),
+		Atmosphere.IsValid() ? TEXT("sim") : TEXT("nao"));
 }
 
 void ADeverauxSkyController::FindSceneComponents()
@@ -208,6 +278,10 @@ void ADeverauxSkyController::FindSceneComponents()
 		if (!Clouds.IsValid())
 		{
 			Clouds = Actor->FindComponentByClass<UVolumetricCloudComponent>();
+		}
+		if (!Atmosphere.IsValid())
+		{
+			Atmosphere = Actor->FindComponentByClass<USkyAtmosphereComponent>();
 		}
 	}
 
@@ -250,6 +324,12 @@ void ADeverauxSkyController::ConfigureSceneComponents()
 	{
 		FogInscatteringOriginal = FogComponent->FogInscatteringLuminance;
 		FogDirectionalOriginal = FogComponent->DirectionalInscatteringLuminance;
+	}
+
+	// A tabela da perspectiva aerea vai ate esta distancia; mais longe ela repete o ultimo valor
+	if (const IConsoleVariable* DepthVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.SkyAtmosphere.AerialPerspectiveLUT.Depth")))
+	{
+		AerialPerspectiveDepthKm = FMath::Max(static_cast<double>(DepthVariable->GetFloat()), 1.0);
 	}
 
 	const UDeverauxSkySettings* Settings = GetDefault<UDeverauxSkySettings>();
@@ -358,8 +438,28 @@ void ADeverauxSkyController::ApplyMoonImage(const FDeverauxSkyState& State, cons
 		return;
 	}
 
+	// Sempre na direcao da lua a partir da camera, entao nao muda de tamanho nem de lugar quando o jogador anda
+	const FVector Direction = FRotator(0.0, Settings.NorthYawDegrees, 0.0).RotateVector(State.MoonDirection);
+	const double SinElevation = FMath::Clamp(Direction.Z, -1.0, 1.0);
+
+	// O que o ar faz com a luz da lua, com a mesma conta que a Unreal usa para colorir a luz, dividida
+	// pelo zenite: no alto quase nada muda, perto do horizonte a lua esmaece e fica alaranjada
+	const USkyAtmosphereComponent* AtmosphereComponent = Atmosphere.Get();
+	const FDeverauxAtmosphereParams AtmosphereParams = AtmosphereComponent ? MakeAtmosphereParams(*AtmosphereComponent) : FDeverauxAtmosphereParams();
+	FVector Tint(1.0, 1.0, 1.0);
+	if (AtmosphereComponent && Settings.MoonAtmosphereStrength > 0.0f)
+	{
+		const double MinLightSin = FMath::Sin(FMath::DegreesToRadians(FMath::Clamp(static_cast<double>(AtmosphereComponent->TransmittanceMinLightElevationAngle), -90.0, 90.0)));
+		const FVector Toward = DeverauxAtmosphere::LightTransmittance(AtmosphereParams, FMath::Max(SinElevation, MinLightSin));
+		const FVector Zenith = DeverauxAtmosphere::LightTransmittance(AtmosphereParams, 1.0);
+		const double Strength = Settings.MoonAtmosphereStrength;
+		Tint = FVector(RelativeTransmittance(Toward.X, Zenith.X, Strength), RelativeTransmittance(Toward.Y, Zenith.Y, Strength),
+			RelativeTransmittance(Toward.Z, Zenith.Z, Strength));
+	}
+
+	// Some abaixo do horizonte, e tambem quando o ar ja apagou a lua: senao sobra um disco escuro
 	const APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0);
-	const bool bVisible = Camera && State.MoonElevationDegrees > MoonImageHideDegrees;
+	const bool bVisible = Camera && State.MoonElevationDegrees > MoonImageHideDegrees && Tint.GetMax() >= MinVisibleTint;
 	MoonImage->SetHiddenInGame(!bVisible);
 	bMoonImageVisible = bVisible;
 	if (!bVisible)
@@ -367,21 +467,35 @@ void ADeverauxSkyController::ApplyMoonImage(const FDeverauxSkyState& State, cons
 		return;
 	}
 
-	// Sempre na direcao da lua a partir da camera, entao nao muda de tamanho nem de lugar quando o jogador anda
-	const FVector Direction = FRotator(0.0, Settings.NorthYawDegrees, 0.0).RotateVector(State.MoonDirection);
+	// Logo atras do topo das nuvens, na direcao da lua, para todas passarem na frente. Com o planeta
+	// redondo, perto do horizonte esse ponto fica bem longe
 	const FVector CameraLocation = Camera->GetCameraLocation();
-
-	double DistanceKm = Settings.MoonImageDistanceKm;
-	if (DistanceKm <= 0.0)
-	{
-		// Logo acima do topo das nuvens ao longo da direcao da lua. O chao do planeta fica na altura zero do mundo
-		const UVolumetricCloudComponent* CloudComponent = Clouds.Get();
-		const double CloudTopKm = CloudComponent ? CloudComponent->LayerBottomAltitude + CloudComponent->LayerHeight : DefaultCloudTopKm;
-		const double CameraAltitudeKm = FMath::Max(0.0, CameraLocation.Z / CentimetersPerKm);
-		DistanceKm = (CloudTopKm + MoonAboveCloudsMarginKm - CameraAltitudeKm) / FMath::Max(Direction.Z, 0.01);
-	}
-	DistanceKm = FMath::Clamp(DistanceKm, MoonImageMinDistanceKm, MoonImageMaxDistanceKm);
+	const double CameraAltitudeKm = FMath::Max(0.0, (CameraLocation.Z - PlanetTopZ(AtmosphereComponent)) / CentimetersPerKm);
+	const UVolumetricCloudComponent* CloudComponent = Clouds.Get();
+	const double CloudTopKm = CloudComponent ? CloudComponent->LayerBottomAltitude + CloudComponent->LayerHeight : DefaultCloudTopKm;
+	const double BehindCloudsKm = DeverauxAtmosphere::DistanceToAltitude(AtmosphereParams.GroundRadiusKm, CameraAltitudeKm, SinElevation,
+		CloudTopKm + MoonAboveCloudsMarginKm);
+	const double DistanceKm = FMath::Clamp(BehindCloudsKm, MoonImageMinDistanceKm, MoonImageMaxDistanceKm);
 	AppliedMoonDistanceKm = DistanceKm;
+
+	// A Unreal ainda escurece a imagem com a perspectiva aerea ate essa distancia (em cinza, a media das
+	// cores). A cor acima ja inclui todo o ar ate o espaco, entao essa parte e descontada para nao contar duas vezes
+	MoonAerialTransmittance = 1.0;
+	if (AtmosphereComponent)
+	{
+		const double ViewDistanceKm = FMath::Min(DistanceKm, AerialPerspectiveDepthKm)
+			* FMath::Max(static_cast<double>(AtmosphereComponent->AerialPespectiveViewDistanceScale), 0.0);
+		const FVector Aerial = DeverauxAtmosphere::Transmittance(AtmosphereParams, CameraAltitudeKm, SinElevation, ViewDistanceKm, AerialPerspectiveSamples);
+		MoonAerialTransmittance = (Aerial.X + Aerial.Y + Aerial.Z) / 3.0;
+	}
+	const FVector Factor = Tint * (1.0 / FMath::Max(MoonAerialTransmittance, MinCompensatedTransmittance));
+	const FLinearColor AtmosphereColor(static_cast<float>(Factor.X), static_cast<float>(Factor.Y), static_cast<float>(Factor.Z), 1.0f);
+	if (!AtmosphereColor.Equals(AppliedMoonAtmosphere, 0.0005f))
+	{
+		static const FName MoonAtmosphereName(TEXT("DeverauxLuaAtmosfera"));
+		MoonImageMaterial->SetVectorParameterValue(MoonAtmosphereName, AtmosphereColor);
+		AppliedMoonAtmosphere = AtmosphereColor;
+	}
 
 	// Tamanho no mundo que da o tamanho angular pedido nessa distancia, com o plano virado para a camera
 	const double Distance = DistanceKm * CentimetersPerKm;

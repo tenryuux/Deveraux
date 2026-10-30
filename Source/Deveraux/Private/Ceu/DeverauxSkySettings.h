@@ -98,15 +98,16 @@ public:
 	bool bControlFog = true;
 
 	/**
-	 * O ceu cuida das nuvens: sombra, raios de luz, luz do ceu e o material das nuvens do mapa (Volumetric
+	 * O ceu cuida das nuvens: sombra, raios na tela, luz do ceu e o material das nuvens do mapa (Volumetric
 	 * Cloud). Desligado, o ceu nao mexe em nada disso e vale o que estiver nos atores do mapa (ao dar Play de novo).
+	 * A neblina volumetrica (Raios de luz) tem a propria chave.
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens")
 	bool bControlClouds = true;
 
 	/**
 	 * As nuvens fazem sombra no chao, com o sol e com a lua: quando uma nuvem passa na frente, o chao escurece.
-	 * A mesma sombra desenha raios de luz na atmosfera (Cast Cloud Shadows nas duas luzes).
+	 * A mesma sombra desenha raios de luz no ar (Cast Cloud Shadows nas duas luzes).
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds"))
 	bool bCloudShadows = true;
@@ -115,17 +116,28 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "0", ClampMax = "1"))
 	float CloudShadowStrength = 1.0f;
 
-	/** Raio, em km, em volta da camera onde as nuvens fazem sombra. Menor = sombra mais nitida (o padrao da Unreal e 150). */
-	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "10", ClampMax = "200"))
-	float CloudShadowExtentKm = 50.0f;
+	/**
+	 * Raio, em km, em volta da camera onde as nuvens fazem sombra. A sombra e uma imagem de tamanho fixo
+	 * esticada nesse raio: quanto MAIOR o raio, mais borrada a sombra no chao. Com 25 km e a resolucao 2,
+	 * cada ponto da sombra cobre uns 50 m; no padrao da Unreal (150 km, resolucao 1) cobre quase 600 m.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "5", ClampMax = "200"))
+	float CloudShadowExtentKm = 25.0f;
+
+	/** Resolucao da sombra das nuvens (Cloud Shadow Map Resolution Scale): 1 = 512 pontos de lado, 2 = 1024. Mais alto = mais nitida e mais cara. */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "0.5", ClampMax = "4"))
+	float CloudShadowResolutionScale = 2.0f;
+
+	/**
+	 * Forca dos raios que a sombra das nuvens desenha no ar da atmosfera, de longe (Cloud Shadow on Atmosphere
+	 * Strength). 0 = sem esses raios. Se o ceu em volta do sol tremer, abaixe isto.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "0", ClampMax = "1"))
+	float CloudShadowAtmosphereStrength = 1.0f;
 
 	/** As nuvens tapam a luz do ceu (Cloud Ambient Occlusion no Sky Light): com o ceu nublado, o chao fica mais escuro. */
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds"))
 	bool bCloudSkyOcclusion = true;
-
-	/** Raios de luz saindo do sol e da lua quando nuvens ou montanhas tapam parte deles (Light Shaft Bloom nas duas luzes). */
-	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds"))
-	bool bLightShafts = true;
 
 	/**
 	 * Multiplica a densidade das nuvens (Cloud_GlobalDensity, do material padrao da Unreal). Mais densas, elas
@@ -144,6 +156,41 @@ public:
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "0", ClampMax = "1"))
 	float CloudBottomOcclusion = 0.9f;
+
+	/**
+	 * Raios de luz no ar, perto do jogador: liga a neblina volumetrica (Volumetric Fog) na Exponential Height Fog
+	 * do mapa. O sol, a lua, o terreno, as arvores e as nuvens fazem sombra dentro dela, entao os raios existem
+	 * no mundo e aparecem olhando para qualquer lado, com o astro na tela ou nao. Desligado, a neblina volta a
+	 * ser como no mapa.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Raios de luz")
+	bool bVolumetricFog = true;
+
+	/**
+	 * Ate onde vai a neblina volumetrica, em metros (o padrao da Unreal e 60). Mais longe pega a sombra das
+	 * nuvens, que e grande; longe demais perde detalhe perto da camera.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Raios de luz", meta = (EditCondition = "bVolumetricFog", ClampMin = "50", ClampMax = "3000"))
+	float VolumetricFogDistanceMeters = 300.0f;
+
+	/** Multiplica a densidade da neblina so na parte volumetrica (Extinction Scale). Mais alto = raios mais fortes e ar mais carregado. */
+	UPROPERTY(Config, EditAnywhere, Category = "Raios de luz", meta = (EditCondition = "bVolumetricFog", ClampMin = "0.1", ClampMax = "10"))
+	float VolumetricFogDensityScale = 1.0f;
+
+	/**
+	 * Para onde a neblina espalha a luz (Scattering Distribution). 0 = igual para todo lado: raios visiveis de
+	 * lado e de costas para o sol. Perto de 0,9 = raios fortes olhando para o sol e quase nada de lado.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Raios de luz", meta = (EditCondition = "bVolumetricFog", ClampMin = "0", ClampMax = "0.9"))
+	float VolumetricFogScattering = 0.3f;
+
+	/**
+	 * Raios na tela (Light Shaft Bloom nas duas luzes): riscos de luz saindo do sol e da lua. E um efeito da
+	 * imagem, nao do mundo: so existe com o astro na tela e treme com as nuvens passando na frente. Ligado, o
+	 * brilho do sol dentro deles e limitado para tremer menos. Os raios no ar (acima) nao dependem disto.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Raios de luz", meta = (EditCondition = "bControlClouds"))
+	bool bLightShafts = false;
 
 	/** Quanto o sol precisa andar, em graus, para a luz ser girada de novo. Cada giro refaz as sombras virtuais do sol. 0 = todo quadro. */
 	UPROPERTY(Config, EditAnywhere, Category = "Desempenho", meta = (ClampMin = "0", ClampMax = "5"))

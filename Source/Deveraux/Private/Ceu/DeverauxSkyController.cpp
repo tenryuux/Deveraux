@@ -71,6 +71,13 @@ namespace DeverauxSkyControllerPrivate
 	/** A compensacao da perspectiva aerea nunca multiplica a lua por mais que 1 / isto. */
 	constexpr double MinCompensatedTransmittance = 0.1;
 
+	/**
+	 * Brilho maximo (depois da exposicao) que entra nos raios na tela. O disco do sol e milhares de vezes mais
+	 * forte que o ceu em volta: com nuvens passando na frente ele acende e apaga a cada quadro, e os raios
+	 * piscavam junto. Limitado, os raios saem do ceu claro em volta do sol, que muda devagar.
+	 */
+	constexpr float LightShaftMaxBrightness = 16.0f;
+
 	FVector ToVector(const FLinearColor& Color)
 	{
 		return FVector(Color.R, Color.G, Color.B);
@@ -191,18 +198,40 @@ namespace DeverauxSkyControllerPrivate
 		return true;
 	}
 
-	/** Muda um numero das nuvens pelo setter da Unreal; se nao der, direto no campo. */
-	void SetCloudFloat(UVolumetricCloudComponent& Cloud, const TCHAR* SetterName, float& Field, float Value)
+	/** Muda um campo pelo setter de Blueprint da Unreal; se nao der, direto no campo, e o componente e refeito. */
+	template <typename TValue>
+	void SetBySetter(UActorComponent& Component, const TCHAR* SetterName, TValue& Field, TValue Value)
 	{
 		struct FParams
 		{
-			float NewValue;
+			TValue NewValue;
 		};
-		if (!CallBlueprintSetter(Cloud, SetterName, FParams{ Value }) || Field != Value)
+		if (!CallBlueprintSetter(Component, SetterName, FParams{ Value }) || Field != Value)
 		{
 			Field = Value;
-			Cloud.MarkRenderStateDirty();
+			Component.MarkRenderStateDirty();
 		}
+	}
+
+	/** Liga ou desliga a neblina volumetrica pelo setter da Unreal; se nao der, direto no campo. */
+	void SetVolumetricFogEnabled(UExponentialHeightFogComponent& FogComponent, bool bEnabled)
+	{
+		struct FParams
+		{
+			bool bNewValue;
+		};
+		if (!CallBlueprintSetter(FogComponent, TEXT("SetVolumetricFog"), FParams{ bEnabled }) || (FogComponent.bEnableVolumetricFog != 0) != bEnabled)
+		{
+			FogComponent.bEnableVolumetricFog = bEnabled;
+			FogComponent.MarkRenderStateDirty();
+		}
+	}
+
+	/** Valor de um console variable da Unreal, para o Info. "?" se ele nao existe nesta versao. */
+	FString ConsoleValue(const TCHAR* Name)
+	{
+		const IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name);
+		return Variable ? Variable->GetString() : FString(TEXT("?"));
 	}
 
 	double AngleBetweenDegrees(const FVector& A, const FVector& B)
@@ -228,7 +257,9 @@ namespace DeverauxSkyControllerPrivate
 		FDeverauxCloudSettings Clouds;
 		Clouds.bShadows = Settings.bCloudShadows;
 		Clouds.ShadowStrength = FMath::Clamp(Settings.CloudShadowStrength, 0.0f, 1.0f);
-		Clouds.ShadowExtentKm = FMath::Clamp(Settings.CloudShadowExtentKm, 10.0f, 200.0f);
+		Clouds.ShadowExtentKm = FMath::Clamp(Settings.CloudShadowExtentKm, 5.0f, 200.0f);
+		Clouds.ShadowResolutionScale = FMath::Clamp(Settings.CloudShadowResolutionScale, 0.5f, 4.0f);
+		Clouds.ShadowAtmosphereStrength = FMath::Clamp(Settings.CloudShadowAtmosphereStrength, 0.0f, 1.0f);
 		Clouds.bSkyOcclusion = Settings.bCloudSkyOcclusion;
 		Clouds.bLightShafts = Settings.bLightShafts;
 		Clouds.DensityScale = FMath::Max(Settings.CloudDensityScale, 0.0f);
@@ -237,8 +268,18 @@ namespace DeverauxSkyControllerPrivate
 		return Clouds;
 	}
 
+	FDeverauxVolumetricFogSettings MakeVolumetricFogSettings(const UDeverauxSkySettings& Settings)
+	{
+		FDeverauxVolumetricFogSettings Result;
+		Result.bEnabled = true;
+		Result.DistanceCm = FMath::Clamp(Settings.VolumetricFogDistanceMeters, 50.0f, 3000.0f) * 100.0f;
+		Result.ExtinctionScale = FMath::Clamp(Settings.VolumetricFogDensityScale, 0.1f, 10.0f);
+		Result.ScatteringDistribution = FMath::Clamp(Settings.VolumetricFogScattering, 0.0f, 0.9f);
+		return Result;
+	}
+
 	/**
-	 * Sombra das nuvens (no chao e na atmosfera, que da os raios de luz) e raios na tela numa luz da
+	 * Sombra das nuvens (no chao e no ar da atmosfera, que da os raios de longe) e raios na tela numa luz da
 	 * atmosfera. Cada mudanca refaz a luz e as sombras virtuais dela, entao so mexe no que mudou.
 	 */
 	void ConfigureLightForClouds(UDirectionalLightComponent* Light, const FDeverauxCloudSettings& Clouds)
@@ -249,25 +290,34 @@ namespace DeverauxSkyControllerPrivate
 		}
 
 		bool bChanged = false;
+		const auto SetValue = [&bChanged](float& Field, float Value)
+		{
+			if (Field != Value)
+			{
+				Field = Value;
+				bChanged = true;
+			}
+		};
+
 		if ((Light->bCastCloudShadows != 0) != Clouds.bShadows)
 		{
 			Light->bCastCloudShadows = Clouds.bShadows;
 			bChanged = true;
 		}
-		if (Light->CloudShadowStrength != Clouds.ShadowStrength)
-		{
-			Light->CloudShadowStrength = Clouds.ShadowStrength;
-			bChanged = true;
-		}
-		if (Light->CloudShadowExtent != Clouds.ShadowExtentKm)
-		{
-			Light->CloudShadowExtent = Clouds.ShadowExtentKm;
-			bChanged = true;
-		}
+		SetValue(Light->CloudShadowStrength, Clouds.ShadowStrength);
+		// No chao a sombra vale inteira: um mapa com isto em 0 nunca mostraria sombra de nuvem no chao
+		SetValue(Light->CloudShadowOnSurfaceStrength, 1.0f);
+		SetValue(Light->CloudShadowOnAtmosphereStrength, Clouds.ShadowAtmosphereStrength);
+		SetValue(Light->CloudShadowExtent, Clouds.ShadowExtentKm);
+		SetValue(Light->CloudShadowMapResolutionScale, Clouds.ShadowResolutionScale);
 		if ((Light->bEnableLightShaftBloom != 0) != Clouds.bLightShafts)
 		{
 			Light->bEnableLightShaftBloom = Clouds.bLightShafts;
 			bChanged = true;
+		}
+		if (Clouds.bLightShafts)
+		{
+			SetValue(Light->BloomMaxBrightness, FMath::Min(Light->BloomMaxBrightness, LightShaftMaxBrightness));
 		}
 		if (bChanged)
 		{
@@ -483,6 +533,10 @@ void ADeverauxSkyController::ConfigureSceneComponents()
 	{
 		FogInscatteringOriginal = FogComponent->FogInscatteringLuminance;
 		FogDirectionalOriginal = FogComponent->DirectionalInscatteringLuminance;
+		VolumetricFogOriginal.bEnabled = FogComponent->bEnableVolumetricFog != 0;
+		VolumetricFogOriginal.DistanceCm = FogComponent->VolumetricFogDistance;
+		VolumetricFogOriginal.ExtinctionScale = FogComponent->VolumetricFogExtinctionScale;
+		VolumetricFogOriginal.ScatteringDistribution = FogComponent->VolumetricFogScatteringDistribution;
 	}
 
 	// A tabela da perspectiva aerea vai ate esta distancia; mais longe ela repete o ultimo valor
@@ -536,6 +590,7 @@ void ADeverauxSkyController::UpdateSky(bool bForceRotation)
 	ApplyClouds(*Settings);
 	ApplyExposure(State, *Settings);
 	ApplyFog(State, *Settings);
+	ApplyVolumetricFog(*Settings);
 	ApplyMaterialParameters(TimeOfDay, State);
 }
 
@@ -579,7 +634,7 @@ void ADeverauxSkyController::ApplyClouds(const UDeverauxSkySettings& Settings)
 
 		if (CloudComponent && CloudComponent->SkyLightCloudBottomOcclusion != Wanted.BottomOcclusion)
 		{
-			SetCloudFloat(*CloudComponent, TEXT("SetSkyLightCloudBottomOcclusion"), CloudComponent->SkyLightCloudBottomOcclusion, Wanted.BottomOcclusion);
+			SetBySetter(*CloudComponent, TEXT("SetSkyLightCloudBottomOcclusion"), CloudComponent->SkyLightCloudBottomOcclusion, Wanted.BottomOcclusion);
 		}
 	}
 
@@ -667,9 +722,77 @@ FString ADeverauxSkyController::GetCloudDescription() const
 		Material = FString::Printf(TEXT("base %.2f | %s | %s"), AppliedClouds.BottomOcclusion, *Density, *Coverage);
 	}
 
-	return FString::Printf(TEXT("nuvens: sombra %s (forca %.2f, %.0f km) | raios de luz %s | luz do ceu tapada %s | %s"),
-		YesNo(AppliedClouds.bShadows), AppliedClouds.ShadowStrength, AppliedClouds.ShadowExtentKm, YesNo(AppliedClouds.bLightShafts),
-		YesNo(AppliedClouds.bSkyOcclusion && SkyLight.IsValid()), *Material);
+	return FString::Printf(TEXT("nuvens: sombra %s (forca %.2f, %.0f km, resolucao x%.1f, raios no ar %.2f) | raios na tela %s | luz do ceu tapada %s | %s"),
+		YesNo(AppliedClouds.bShadows), AppliedClouds.ShadowStrength, AppliedClouds.ShadowExtentKm, AppliedClouds.ShadowResolutionScale,
+		AppliedClouds.ShadowAtmosphereStrength, YesNo(AppliedClouds.bLightShafts), YesNo(AppliedClouds.bSkyOcclusion && SkyLight.IsValid()), *Material);
+}
+
+FString ADeverauxSkyController::GetLightDescription() const
+{
+	using namespace DeverauxSkyControllerPrivate;
+
+	const auto YesNo = [](bool bValue) { return bValue ? TEXT("sim") : TEXT("nao"); };
+	const auto DescribeLight = [&YesNo](const UDirectionalLightComponent* Light)
+	{
+		if (!Light)
+		{
+			return FString(TEXT("nenhuma"));
+		}
+		const FString AtmosphereIndex = Light->IsUsedAsAtmosphereSunLight()
+			? FString::Printf(TEXT("%d"), static_cast<int32>(Light->GetAtmosphereSunLightIndex())) : FString(TEXT("nao"));
+		return FString::Printf(TEXT("sombra das nuvens %s (forca %.2f, chao %.2f, ar %.2f, %.0f km, resolucao x%.2f), raios na tela %s, luz da atmosfera %s"),
+			YesNo(Light->bCastCloudShadows != 0), Light->CloudShadowStrength, Light->CloudShadowOnSurfaceStrength, Light->CloudShadowOnAtmosphereStrength,
+			Light->CloudShadowExtent, Light->CloudShadowMapResolutionScale, YesNo(Light->bEnableLightShaftBloom != 0), *AtmosphereIndex);
+	};
+
+	FString FogText(TEXT("o mapa nao tem Exponential Height Fog"));
+	if (const UExponentialHeightFogComponent* FogComponent = Fog.Get())
+	{
+		FogText = FString::Printf(TEXT("%s (%.0f m, densidade x%.2f, espalhamento %.2f)"), YesNo(FogComponent->bEnableVolumetricFog != 0),
+			FogComponent->VolumetricFogDistance / 100.0f, FogComponent->VolumetricFogExtinctionScale, FogComponent->VolumetricFogScatteringDistribution);
+	}
+
+	return FString::Printf(TEXT("luzes agora: sol: %s | lua: %s | neblina volumetrica: %s | r.VolumetricCloud.ShadowMap %s, r.VolumetricFog %s, MegaLights %s"),
+		*DescribeLight(Sun.Get()), *DescribeLight(MoonLight), *FogText, *ConsoleValue(TEXT("r.VolumetricCloud.ShadowMap")),
+		*ConsoleValue(TEXT("r.VolumetricFog")), *ConsoleValue(TEXT("r.MegaLights.EnableForProject")));
+}
+
+void ADeverauxSkyController::ApplyVolumetricFog(const UDeverauxSkySettings& Settings)
+{
+	using namespace DeverauxSkyControllerPrivate;
+
+	UExponentialHeightFogComponent* FogComponent = Fog.Get();
+	if (!FogComponent)
+	{
+		return;
+	}
+
+	// Desligado, volta ao que o mapa tinha: da para ligar e desligar com o jogo rodando
+	const FDeverauxVolumetricFogSettings Wanted = Settings.bVolumetricFog ? MakeVolumetricFogSettings(Settings) : VolumetricFogOriginal;
+	if (bHasAppliedVolumetricFog && Wanted.Equals(AppliedVolumetricFog))
+	{
+		return;
+	}
+	AppliedVolumetricFog = Wanted;
+	bHasAppliedVolumetricFog = true;
+
+	if (FogComponent->VolumetricFogDistance != Wanted.DistanceCm)
+	{
+		SetBySetter(*FogComponent, TEXT("SetVolumetricFogDistance"), FogComponent->VolumetricFogDistance, Wanted.DistanceCm);
+	}
+	if (FogComponent->VolumetricFogExtinctionScale != Wanted.ExtinctionScale)
+	{
+		SetBySetter(*FogComponent, TEXT("SetVolumetricFogExtinctionScale"), FogComponent->VolumetricFogExtinctionScale, Wanted.ExtinctionScale);
+	}
+	if (FogComponent->VolumetricFogScatteringDistribution != Wanted.ScatteringDistribution)
+	{
+		SetBySetter(*FogComponent, TEXT("SetVolumetricFogScatteringDistribution"), FogComponent->VolumetricFogScatteringDistribution,
+			Wanted.ScatteringDistribution);
+	}
+	if ((FogComponent->bEnableVolumetricFog != 0) != Wanted.bEnabled)
+	{
+		SetVolumetricFogEnabled(*FogComponent, Wanted.bEnabled);
+	}
 }
 
 void ADeverauxSkyController::ApplyLights(const FDeverauxSkyState& State, const UDeverauxSkySettings& Settings, bool bForceRotation)

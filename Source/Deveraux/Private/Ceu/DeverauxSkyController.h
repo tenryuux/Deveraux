@@ -16,6 +16,7 @@ class UVolumetricCloudComponent;
 class UMaterialInstanceDynamic;
 class UMaterialParameterCollectionInstance;
 class UPostProcessComponent;
+class USkyAtmosphereComponent;
 class USkyLightComponent;
 class UStaticMeshComponent;
 
@@ -63,7 +64,7 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "Ceu")
 	TObjectPtr<UStaticMeshComponent> MoonImage;
 
-	/** Copia do material da lua que recebe DeverauxLuaLux, a intensidade da luz da lua. */
+	/** Copia do material da lua que recebe DeverauxLuaLux (intensidade da luz) e DeverauxLuaAtmosfera (efeito do ar). */
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> MoonImageMaterial;
 
@@ -75,7 +76,11 @@ private:
 	TWeakObjectPtr<USkyLightComponent> SkyLight;
 	TWeakObjectPtr<UExponentialHeightFogComponent> Fog;
 	TWeakObjectPtr<UVolumetricCloudComponent> Clouds;
+	TWeakObjectPtr<USkyAtmosphereComponent> Atmosphere;
 	TWeakObjectPtr<UMaterialParameterCollectionInstance> ParameterCollectionInstance;
+
+	/** Ate onde vai a tabela da perspectiva aerea da Unreal, em km. Mais longe, ela repete o ultimo valor. */
+	double AerialPerspectiveDepthKm = 96.0;
 
 	// Valores originais do mapa, que servem de base para a noite
 	float SunIntensity = 0.0f;
@@ -91,6 +96,8 @@ private:
 	float AppliedMoonAngle = -1.0f;
 	float AppliedFogScale = -1.0f;
 	double AppliedMoonDistanceKm = 0.0;
+	FLinearColor AppliedMoonAtmosphere = FLinearColor(-1.0f, -1.0f, -1.0f);
+	double MoonAerialTransmittance = 1.0;
 	bool bMoonImageVisible = false;
 	bool bHasMoonImage = false;
 };

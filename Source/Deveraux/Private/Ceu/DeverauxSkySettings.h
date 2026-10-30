@@ -97,6 +97,54 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Neblina")
 	bool bControlFog = true;
 
+	/**
+	 * O ceu cuida das nuvens: sombra, raios de luz, luz do ceu e o material das nuvens do mapa (Volumetric
+	 * Cloud). Desligado, o ceu nao mexe em nada disso e vale o que estiver nos atores do mapa (ao dar Play de novo).
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens")
+	bool bControlClouds = true;
+
+	/**
+	 * As nuvens fazem sombra no chao, com o sol e com a lua: quando uma nuvem passa na frente, o chao escurece.
+	 * A mesma sombra desenha raios de luz na atmosfera (Cast Cloud Shadows nas duas luzes).
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds"))
+	bool bCloudShadows = true;
+
+	/** Forca da sombra das nuvens. 1 = cada nuvem tapa toda a luz que a densidade dela tapa. */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "0", ClampMax = "1"))
+	float CloudShadowStrength = 1.0f;
+
+	/** Raio, em km, em volta da camera onde as nuvens fazem sombra. Menor = sombra mais nitida (o padrao da Unreal e 150). */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "10", ClampMax = "200"))
+	float CloudShadowExtentKm = 50.0f;
+
+	/** As nuvens tapam a luz do ceu (Cloud Ambient Occlusion no Sky Light): com o ceu nublado, o chao fica mais escuro. */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds"))
+	bool bCloudSkyOcclusion = true;
+
+	/** Raios de luz saindo do sol e da lua quando nuvens ou montanhas tapam parte deles (Light Shaft Bloom nas duas luzes). */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds"))
+	bool bLightShafts = true;
+
+	/**
+	 * Multiplica a densidade das nuvens (Cloud_GlobalDensity, do material padrao da Unreal). Mais densas, elas
+	 * tapam o sol e a lua e ficam mais escuras por baixo. 1 = como o material veio.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "0", ClampMax = "10"))
+	float CloudDensityScale = 2.0f;
+
+	/** Soma na cobertura do ceu (Layout_GlobalCoverage, do material padrao). Positivo = mais nuvens; negativo = menos. */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "-1", ClampMax = "1"))
+	float CloudCoverageOffset = 0.0f;
+
+	/**
+	 * Quanto a base das nuvens deixa de receber a luz do ceu, de 0 a 1 (o padrao da Unreal e 0,5). Mais alto,
+	 * mais escura por baixo. So vale se o material das nuvens nao define a propria oclusao.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "0", ClampMax = "1"))
+	float CloudBottomOcclusion = 0.9f;
+
 	/** Quanto o sol precisa andar, em graus, para a luz ser girada de novo. Cada giro refaz as sombras virtuais do sol. 0 = todo quadro. */
 	UPROPERTY(Config, EditAnywhere, Category = "Desempenho", meta = (ClampMin = "0", ClampMax = "5"))
 	float UpdateStepDegrees = 0.25f;

@@ -252,6 +252,59 @@ namespace DeverauxSkyControllerPrivate
 		return Name;
 	}
 
+	/**
+	 * Acha um parametro numerico do material: pelo nome do material padrao da Unreal ou, se esta versao do material
+	 * usar outro nome, pelo primeiro escalar com a palavra-chave no nome. Keyword vazia = so o nome exato.
+	 */
+	bool FindScalarParameter(const UMaterialInterface& Material, const FName& PreferredName, const TCHAR* Keyword, FName& OutName, float& OutValue)
+	{
+		if (Material.GetScalarParameterValue(FHashedMaterialParameterInfo(PreferredName), OutValue, false))
+		{
+			OutName = PreferredName;
+			return true;
+		}
+		if (!Keyword || !*Keyword)
+		{
+			return false;
+		}
+
+		TArray<FMaterialParameterInfo> Infos;
+		TArray<FGuid> Ids;
+		Material.GetAllScalarParameterInfo(Infos, Ids);
+		for (const FMaterialParameterInfo& Info : Infos)
+		{
+			if (Info.Association == EMaterialParameterAssociation::GlobalParameter && Info.Name.ToString().Contains(Keyword)
+				&& Material.GetScalarParameterValue(FHashedMaterialParameterInfo(Info.Name), OutValue, false))
+			{
+				OutName = Info.Name;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Os nomes dos parametros do material, escalares e vetores, para o log quando falta algum. */
+	FString DescribeMaterialParameters(const UMaterialInterface& Material)
+	{
+		const auto JoinNames = [](const TArray<FMaterialParameterInfo>& Infos)
+		{
+			TArray<FString> Names;
+			for (const FMaterialParameterInfo& Info : Infos)
+			{
+				Names.Add(Info.Name.ToString());
+			}
+			return Names.Num() > 0 ? FString::Join(Names, TEXT(", ")) : FString(TEXT("nenhum"));
+		};
+
+		TArray<FMaterialParameterInfo> Scalars;
+		TArray<FGuid> ScalarIds;
+		Material.GetAllScalarParameterInfo(Scalars, ScalarIds);
+		TArray<FMaterialParameterInfo> Vectors;
+		TArray<FGuid> VectorIds;
+		Material.GetAllVectorParameterInfo(Vectors, VectorIds);
+		return FString::Printf(TEXT("escalares: %s | vetores: %s"), *JoinNames(Scalars), *JoinNames(Vectors));
+	}
+
 	FDeverauxCloudSettings MakeCloudSettings(const UDeverauxSkySettings& Settings)
 	{
 		FDeverauxCloudSettings Clouds;
@@ -654,11 +707,11 @@ void ADeverauxSkyController::ApplyClouds(const UDeverauxSkySettings& Settings)
 	{
 		if (bHasCloudDensity)
 		{
-			CloudMaterial->SetScalarParameterValue(CloudDensityParameter(), CloudDensityOriginal * Wanted.DensityScale);
+			CloudMaterial->SetScalarParameterValue(CloudDensityName, CloudDensityOriginal * Wanted.DensityScale);
 		}
 		if (bHasCloudCoverage)
 		{
-			CloudMaterial->SetScalarParameterValue(CloudCoverageParameter(), CloudCoverageOriginal + Wanted.CoverageOffset);
+			CloudMaterial->SetScalarParameterValue(CloudCoverageName, CloudCoverageOriginal + Wanted.CoverageOffset);
 		}
 	}
 }
@@ -679,13 +732,20 @@ bool ADeverauxSkyController::SetupCloudMaterial(UVolumetricCloudComponent* Cloud
 		return false;
 	}
 	bCheckedCloudMaterial = true;
+	CloudMaterialName = OriginalMaterial->GetName();
 
-	bHasCloudDensity = OriginalMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo(CloudDensityParameter()), CloudDensityOriginal, false);
-	bHasCloudCoverage = OriginalMaterial->GetScalarParameterValue(FHashedMaterialParameterInfo(CloudCoverageParameter()), CloudCoverageOriginal, false);
+	// A cobertura muda de nome entre versoes do material padrao: sem o nome da documentacao, vale outro escalar
+	// com "Coverage" no nome. O que faltar vai para o log com a lista dos parametros do material
+	bHasCloudDensity = FindScalarParameter(*OriginalMaterial, CloudDensityParameter(), TEXT(""), CloudDensityName, CloudDensityOriginal);
+	bHasCloudCoverage = FindScalarParameter(*OriginalMaterial, CloudCoverageParameter(), TEXT("Coverage"), CloudCoverageName, CloudCoverageOriginal);
+	if (!bHasCloudDensity || !bHasCloudCoverage)
+	{
+		UE_LOG(LogDeverauxCeu, Warning, TEXT("O material das nuvens (%s) nao tem parametro de %s: esse ajuste do Project Settings nao muda nada. Parametros do material: %s"),
+			*CloudMaterialName, !bHasCloudDensity && !bHasCloudCoverage ? TEXT("densidade nem de cobertura") : (bHasCloudDensity ? TEXT("cobertura") : TEXT("densidade")),
+			*DescribeMaterialParameters(*OriginalMaterial));
+	}
 	if (!bHasCloudDensity && !bHasCloudCoverage)
 	{
-		UE_LOG(LogDeverauxCeu, Warning, TEXT("O material das nuvens (%s) nao tem Cloud_GlobalDensity nem Layout_GlobalCoverage: densidade e cobertura ficam como estao."),
-			*OriginalMaterial->GetName());
 		return false;
 	}
 
@@ -729,9 +789,9 @@ FString ADeverauxSkyController::GetCloudDescription() const
 			? FString::Printf(TEXT("densidade %.3f x %.2f = %.3f"), CloudDensityOriginal, AppliedClouds.DensityScale, CloudDensityOriginal * AppliedClouds.DensityScale)
 			: FString(TEXT("o material nao tem Cloud_GlobalDensity"));
 		const FString Coverage = bHasCloudCoverage
-			? FString::Printf(TEXT("cobertura %.3f %+.2f"), CloudCoverageOriginal, AppliedClouds.CoverageOffset)
-			: FString(TEXT("o material nao tem Layout_GlobalCoverage"));
-		Material = FString::Printf(TEXT("base %.2f | %s | %s"), AppliedClouds.BottomOcclusion, *Density, *Coverage);
+			? FString::Printf(TEXT("cobertura (%s) %.3f %+.2f"), *CloudCoverageName.ToString(), CloudCoverageOriginal, AppliedClouds.CoverageOffset)
+			: FString(TEXT("o material nao tem parametro de cobertura (a lista dos parametros dele esta no log)"));
+		Material = FString::Printf(TEXT("material %s | base %.2f | %s | %s"), *CloudMaterialName, AppliedClouds.BottomOcclusion, *Density, *Coverage);
 	}
 
 	return FString::Printf(TEXT("nuvens: sombra %s (forca %.2f, %.0f km, resolucao x%.1f, raios no ar %.2f, passos no ar x%.1f) | raios na tela %s | luz do ceu tapada %s | %s"),

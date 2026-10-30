@@ -118,15 +118,19 @@ public:
 
 	/**
 	 * Raio, em km, em volta da camera onde as nuvens fazem sombra. A sombra e uma imagem de tamanho fixo
-	 * esticada nesse raio: quanto MAIOR o raio, mais borrada a sombra no chao. Com 25 km e a resolucao 2,
-	 * cada ponto da sombra cobre uns 50 m; no padrao da Unreal (150 km, resolucao 1) cobre quase 600 m.
+	 * esticada nesse raio: quanto MAIOR o raio, mais borrada a sombra no chao. Com 25 km, cada ponto da sombra
+	 * cobre uns 100 m (resolucao 1) ou 50 m (resolucao 2); no padrao da Unreal (150 km, resolucao 1), quase 600 m.
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "5", ClampMax = "200"))
 	float CloudShadowExtentKm = 25.0f;
 
-	/** Resolucao da sombra das nuvens (Cloud Shadow Map Resolution Scale): 1 = 512 pontos de lado, 2 = 1024. Mais alto = mais nitida e mais cara. */
+	/**
+	 * Resolucao da sombra das nuvens (Cloud Shadow Map Resolution Scale): 1 = 512 pontos de lado, 2 = 1024.
+	 * E a parte mais cara do ceu: com 2 a sombra custa umas 4 vezes mais que com 1 (medido no jogo: perto de
+	 * 4,5 ms contra pouco mais de 1 ms). No crepusculo o sol e a lua desenham uma cada um.
+	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "0.5", ClampMax = "4"))
-	float CloudShadowResolutionScale = 2.0f;
+	float CloudShadowResolutionScale = 1.0f;
 
 	/**
 	 * Forca dos raios que a sombra das nuvens desenha no ar da atmosfera, de longe (Cloud Shadow on Atmosphere

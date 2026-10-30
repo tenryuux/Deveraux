@@ -147,9 +147,20 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "1", ClampMax = "8"))
 	float AtmosphereShadowQuality = 4.0f;
 
-	/** As nuvens tapam a luz do ceu (Cloud Ambient Occlusion no Sky Light): com o ceu nublado, o chao fica mais escuro. */
+	/**
+	 * As nuvens tapam a luz do ceu (Cloud Ambient Occlusion no Sky Light): debaixo das nuvens o chao recebe menos
+	 * luz do ceu que nas aberturas. A Unreal desenha um mapa so para isso, de cima para baixo; com resolucao 1 ele
+	 * custava perto de 1,6 ms no jogo. Desligado, esse custo some e o chao fica um pouco mais claro sob as nuvens.
+	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds"))
 	bool bCloudSkyOcclusion = true;
+
+	/**
+	 * Resolucao desse mapa da luz do ceu tapada (Cloud Ambient Occlusion Map Resolution Scale): 1 = 512 pontos de
+	 * lado, 0,25 = 128. E um efeito suave, sem bordas: 0,25 ja basta. O raio e o mesmo da sombra das nuvens.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds && bCloudSkyOcclusion", ClampMin = "0.25", ClampMax = "2"))
+	float CloudSkyOcclusionResolutionScale = 0.25f;
 
 	/**
 	 * Multiplica a densidade das nuvens (Cloud_GlobalDensity, do material padrao da Unreal). Mais densas, elas
@@ -158,7 +169,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "0", ClampMax = "10"))
 	float CloudDensityScale = 2.0f;
 
-	/** Soma na cobertura do ceu (Layout_GlobalCoverage, do material padrao). Positivo = mais nuvens; negativo = menos. */
+	/**
+	 * Soma na cobertura do ceu (Cloud_GlobalCoverage, no material padrao da 5.8, que comeca em -0,2). Positivo =
+	 * mais nuvens; negativo = menos. 0 = como o material veio.
+	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "-1", ClampMax = "1"))
 	float CloudCoverageOffset = 0.0f;
 

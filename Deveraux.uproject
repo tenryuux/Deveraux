@@ -4,26 +4,26 @@
 	"Category": "",
 	"Description": "",
 	"Modules": [
-	{
-		"Name": "Deveraux",
-		"Type": "Runtime",
-		"LoadingPhase": "Default"
-	},
-	{
-		"Name": "DeverauxSim",
-		"Type": "Runtime",
-		"LoadingPhase": "Default"
-	},
-	{
-		"Name": "DeverauxBattle",
-		"Type": "Runtime",
-		"LoadingPhase": "Default"
-	},
-	{
-		"Name": "DeverauxEditor",
-		"Type": "Editor",
-		"LoadingPhase": "Default"
-	}
+		{
+			"Name": "Deveraux",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "DeverauxSim",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "DeverauxBattle",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "DeverauxEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
 	],
 	"Plugins": [
 		{
@@ -37,6 +37,10 @@
 				"Win64"
 			],
 			"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/product/362651520df94e4fa65492dbcba44ae2"
+		},
+		{
+			"Name": "FunctionalTestingEditor",
+			"Enabled": true
 		}
 	]
 }

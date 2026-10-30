@@ -925,11 +925,18 @@ void ADeverauxSkyController::ApplyMoonImage(const FDeverauxSkyState& State, cons
 		AppliedMoonAtmosphere = AtmosphereColor;
 	}
 
+	// O alto da imagem aponta para o polo norte celeste, como na lua de verdade: ela gira devagar do nascer ao
+	// poente. O alto do lugar nao serve: no zenite ele deixa de existir, e com a latitude perto de 0 a imagem
+	// virava de ponta-cabeca de uma vez ao passar por cima. Com a declinacao da lua o polo nunca fica na frente dela
+	const double LatitudeRadians = FMath::DegreesToRadians(Settings.LatitudeDegrees);
+	const FVector CelestialNorth = FRotator(0.0, Settings.NorthYawDegrees, 0.0).RotateVector(
+		FVector(FMath::Cos(LatitudeRadians), 0.0, FMath::Sin(LatitudeRadians)));
+
 	// Tamanho no mundo que da o tamanho angular pedido nessa distancia, com o plano virado para a camera.
 	// Lugar, giro e tamanho numa so atualizacao por quadro
 	const double Distance = DistanceKm * CentimetersPerKm;
 	const double Size = 2.0 * Distance * FMath::Tan(FMath::DegreesToRadians(0.5 * Settings.MoonAngularSizeDegrees));
-	MoonImage->SetWorldTransform(FTransform(FRotationMatrix::MakeFromZX(-Direction, FVector(0.0, 0.0, 1.0)).Rotator(),
+	MoonImage->SetWorldTransform(FTransform(FRotationMatrix::MakeFromZX(-Direction, CelestialNorth).Rotator(),
 		CameraLocation + Direction * Distance, FVector(Size / PlaneMeshSize)));
 }
 

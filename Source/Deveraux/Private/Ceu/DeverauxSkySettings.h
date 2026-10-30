@@ -135,6 +135,14 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "0", ClampMax = "1"))
 	float CloudShadowAtmosphereStrength = 1.0f;
 
+	/**
+	 * Quantos passos a atmosfera da em cada direcao do ceu para desenhar a sombra das nuvens no ar (Trace Sample
+	 * Count Scale do Sky Atmosphere). Com poucos passos essa sombra sai em faixas e aneis duros no ceu. 1 = o
+	 * padrao da Unreal. Nao muda a sombra no chao nem a neblina perto do jogador. Mais alto custa mais.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds", ClampMin = "1", ClampMax = "8"))
+	float AtmosphereShadowQuality = 4.0f;
+
 	/** As nuvens tapam a luz do ceu (Cloud Ambient Occlusion no Sky Light): com o ceu nublado, o chao fica mais escuro. */
 	UPROPERTY(Config, EditAnywhere, Category = "Nuvens", meta = (EditCondition = "bControlClouds"))
 	bool bCloudSkyOcclusion = true;

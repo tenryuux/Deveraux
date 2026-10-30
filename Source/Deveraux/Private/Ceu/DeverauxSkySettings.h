@@ -58,9 +58,11 @@ public:
 	float MoonAngularSizeDegrees = 1.5f;
 
 	/**
-	 * Opcional. Material com a imagem da lua (Unlit, Masked, Two Sided). Com ele, a lua aparece como essa
-	 * imagem, sempre logo atras das nuvens; sem ele, como um disco branco igual ao do sol. Lido quando o
-	 * jogo comeca. Multiplique a cor emissiva pelos dois parametros que o codigo preenche:
+	 * Opcional. Material com a imagem da lua: Unlit, Additive, Two Sided e, em Translucency, Apply Fogging,
+	 * Apply Cloud Fogging e Compute Fog Per Pixel ligados. Additive soma a luz da lua ao ceu, entao o halo e
+	 * o lado escuro se misturam com a atmosfera; as nuvens e a neblina passam na frente. Sem material, a lua
+	 * e um disco branco igual ao do sol. Lido quando o jogo comeca. Multiplique a cor emissiva (com a
+	 * imagem ja multiplicada pelo proprio alfa) pelos dois parametros que o codigo preenche:
 	 * DeverauxLuaLux (escalar), a intensidade da luz da lua, para o brilho acompanhar a exposicao da noite;
 	 * DeverauxLuaAtmosfera (vetor), o que a atmosfera faz com a lua: mais fraca e alaranjada perto do horizonte.
 	 */

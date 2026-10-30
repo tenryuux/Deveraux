@@ -18,6 +18,7 @@
 #include "EngineUtils.h"
 #include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialParameterCollection.h"
@@ -25,6 +26,7 @@
 #include "Math/RotationMatrix.h"
 #include "Relogio/DeverauxClockSubsystem.h"
 #include "UObject/ConstructorHelpers.h"
+#include "UObject/UnrealType.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDeverauxCeu, Log, All);
 
@@ -118,6 +120,57 @@ namespace DeverauxSkyControllerPrivate
 			return 1.0;
 		}
 		return FMath::Pow(FMath::Clamp(Toward / Zenith, 0.0, 1.0), Strength);
+	}
+
+	/** Le uma caixa de marcar do material pelo nome que a Unreal usa. Sem achar o nome, fica o padrao. */
+	bool ReadMaterialFlag(const UMaterial& Material, const TCHAR* Name, bool bDefault)
+	{
+		const FBoolProperty* Property = FindFProperty<FBoolProperty>(UMaterial::StaticClass(), Name);
+		return Property ? Property->GetPropertyValue_InContainer(&Material) : bDefault;
+	}
+
+	/**
+	 * O que falta no material da lua para ela somar luz ao ceu, com as nuvens e a neblina na frente.
+	 * Em Masked, tudo com um pouco de opacidade (o halo, o lado escuro) vira um disco solido de borda dura.
+	 * Vazio quando esta tudo certo.
+	 */
+	FString DescribeMoonMaterialProblems(const UMaterialInterface& Material)
+	{
+		const EBlendMode BlendMode = Material.GetBlendMode();
+		if (BlendMode != BLEND_Additive && BlendMode != BLEND_Translucent)
+		{
+			return TEXT("use Blend Mode Additive (em Masked o halo vira um disco solido)");
+		}
+
+		const UMaterial* BaseMaterial = Material.GetMaterial();
+		if (!BaseMaterial)
+		{
+			return FString();
+		}
+
+		TArray<FString> Problems;
+		if (ReadMaterialFlag(*BaseMaterial, TEXT("bIsSky"), false))
+		{
+			Problems.Add(TEXT("desligue Is Sky"));
+		}
+		TArray<FString> Missing;
+		if (!ReadMaterialFlag(*BaseMaterial, TEXT("bUseTranslucencyVertexFog"), true))
+		{
+			Missing.Add(TEXT("Apply Fogging"));
+		}
+		if (!ReadMaterialFlag(*BaseMaterial, TEXT("bApplyCloudFogging"), true))
+		{
+			Missing.Add(TEXT("Apply Cloud Fogging"));
+		}
+		if (!ReadMaterialFlag(*BaseMaterial, TEXT("bComputeFogPerPixel"), true))
+		{
+			Missing.Add(TEXT("Compute Fog Per Pixel"));
+		}
+		if (Missing.Num() > 0)
+		{
+			Problems.Add(FString::Printf(TEXT("ligue em Translucency: %s"), *FString::Join(Missing, TEXT(", "))));
+		}
+		return FString::Join(Problems, TEXT("; "));
 	}
 
 	void UpdateLightState(UDirectionalLightComponent* Light, double ElevationDegrees, bool bAllowShadows, double TwilightDegrees)
@@ -225,6 +278,7 @@ FString ADeverauxSkyController::GetDebugDescription() const
 		MoonText = !bMoonImageVisible ? FString(TEXT("imagem, abaixo do horizonte"))
 			: FString::Printf(TEXT("imagem a %.1f km, DeverauxLuaAtmosfera %.2f %.2f %.2f (ar ate ela %.2f)"), AppliedMoonDistanceKm,
 				AppliedMoonAtmosphere.R, AppliedMoonAtmosphere.G, AppliedMoonAtmosphere.B, MoonAerialTransmittance);
+		MoonText += MoonMaterialProblems.IsEmpty() ? FString(TEXT(", material ok")) : FString::Printf(TEXT(", material: %s"), *MoonMaterialProblems);
 	}
 
 	return FString::Printf(TEXT("sol do mapa: %s, %.2f lux | sombra: %s | lua: %s, %.2f lux | exposicao %.2f EV | sky light: %s | neblina: %s | nuvens: %s | atmosfera: %s"),
@@ -347,6 +401,12 @@ void ADeverauxSkyController::ConfigureSceneComponents()
 
 		// A imagem toma o lugar do disco branco que a atmosfera desenha para a lua
 		MoonLight->SetAtmosphereSunDiskColorScale(FLinearColor(0.0f, 0.0f, 0.0f));
+
+		MoonMaterialProblems = DeverauxSkyControllerPrivate::DescribeMoonMaterialProblems(*MoonMaterialAsset);
+		if (!MoonMaterialProblems.IsEmpty())
+		{
+			UE_LOG(LogDeverauxCeu, Warning, TEXT("Material da lua (%s): %s."), *MoonMaterialAsset->GetName(), *MoonMaterialProblems);
+		}
 	}
 }
 

@@ -260,6 +260,7 @@ namespace DeverauxSkyControllerPrivate
 		Clouds.ShadowExtentKm = FMath::Clamp(Settings.CloudShadowExtentKm, 5.0f, 200.0f);
 		Clouds.ShadowResolutionScale = FMath::Clamp(Settings.CloudShadowResolutionScale, 0.5f, 4.0f);
 		Clouds.ShadowAtmosphereStrength = FMath::Clamp(Settings.CloudShadowAtmosphereStrength, 0.0f, 1.0f);
+		Clouds.AtmosphereTraceScale = FMath::Clamp(Settings.AtmosphereShadowQuality, 1.0f, 8.0f);
 		Clouds.bSkyOcclusion = Settings.bCloudSkyOcclusion;
 		Clouds.bLightShafts = Settings.bLightShafts;
 		Clouds.DensityScale = FMath::Max(Settings.CloudDensityScale, 0.0f);
@@ -636,6 +637,17 @@ void ADeverauxSkyController::ApplyClouds(const UDeverauxSkySettings& Settings)
 		{
 			SetBySetter(*CloudComponent, TEXT("SetSkyLightCloudBottomOcclusion"), CloudComponent->SkyLightCloudBottomOcclusion, Wanted.BottomOcclusion);
 		}
+
+		// A sombra das nuvens no ar e desenhada passo a passo em cada direcao do ceu: com mais passos ela sai lisa,
+		// sem faixas. Vale so para a atmosfera; o chao le a sombra direto. A Unreal nao tem setter para isto
+		if (USkyAtmosphereComponent* AtmosphereComponent = Atmosphere.Get())
+		{
+			if (AtmosphereComponent->TraceSampleCountScale != Wanted.AtmosphereTraceScale)
+			{
+				AtmosphereComponent->TraceSampleCountScale = Wanted.AtmosphereTraceScale;
+				AtmosphereComponent->MarkRenderStateDirty();
+			}
+		}
 	}
 
 	if (CloudMaterial)
@@ -722,9 +734,10 @@ FString ADeverauxSkyController::GetCloudDescription() const
 		Material = FString::Printf(TEXT("base %.2f | %s | %s"), AppliedClouds.BottomOcclusion, *Density, *Coverage);
 	}
 
-	return FString::Printf(TEXT("nuvens: sombra %s (forca %.2f, %.0f km, resolucao x%.1f, raios no ar %.2f) | raios na tela %s | luz do ceu tapada %s | %s"),
+	return FString::Printf(TEXT("nuvens: sombra %s (forca %.2f, %.0f km, resolucao x%.1f, raios no ar %.2f, passos no ar x%.1f) | raios na tela %s | luz do ceu tapada %s | %s"),
 		YesNo(AppliedClouds.bShadows), AppliedClouds.ShadowStrength, AppliedClouds.ShadowExtentKm, AppliedClouds.ShadowResolutionScale,
-		AppliedClouds.ShadowAtmosphereStrength, YesNo(AppliedClouds.bLightShafts), YesNo(AppliedClouds.bSkyOcclusion && SkyLight.IsValid()), *Material);
+		AppliedClouds.ShadowAtmosphereStrength, AppliedClouds.AtmosphereTraceScale, YesNo(AppliedClouds.bLightShafts),
+		YesNo(AppliedClouds.bSkyOcclusion && SkyLight.IsValid()), *Material);
 }
 
 FString ADeverauxSkyController::GetLightDescription() const
@@ -752,8 +765,14 @@ FString ADeverauxSkyController::GetLightDescription() const
 			FogComponent->VolumetricFogDistance / 100.0f, FogComponent->VolumetricFogExtinctionScale, FogComponent->VolumetricFogScatteringDistribution);
 	}
 
-	return FString::Printf(TEXT("luzes agora: sol: %s | lua: %s | neblina volumetrica: %s | r.VolumetricCloud.ShadowMap %s, r.VolumetricFog %s, MegaLights %s"),
-		*DescribeLight(Sun.Get()), *DescribeLight(MoonLight), *FogText, *ConsoleValue(TEXT("r.VolumetricCloud.ShadowMap")),
+	const USkyAtmosphereComponent* AtmosphereComponent = Atmosphere.Get();
+	const FString AtmosphereText = AtmosphereComponent
+		? FString::Printf(TEXT("passos x%.1f (limite r.SkyAtmosphere.FastSkyLUT.SampleCountMax %s)"), AtmosphereComponent->TraceSampleCountScale,
+			*ConsoleValue(TEXT("r.SkyAtmosphere.FastSkyLUT.SampleCountMax")))
+		: FString(TEXT("o mapa nao tem Sky Atmosphere"));
+
+	return FString::Printf(TEXT("luzes agora: sol: %s | lua: %s | neblina volumetrica: %s | atmosfera: %s | r.VolumetricCloud.ShadowMap %s, r.VolumetricFog %s, MegaLights %s"),
+		*DescribeLight(Sun.Get()), *DescribeLight(MoonLight), *FogText, *AtmosphereText, *ConsoleValue(TEXT("r.VolumetricCloud.ShadowMap")),
 		*ConsoleValue(TEXT("r.VolumetricFog")), *ConsoleValue(TEXT("r.MegaLights.EnableForProject")));
 }
 

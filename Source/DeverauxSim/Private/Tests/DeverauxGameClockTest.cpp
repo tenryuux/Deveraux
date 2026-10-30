@@ -145,6 +145,35 @@ bool FDeverauxGameClockTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Relogio em 6 minutos"), Clock.GetTotalMinutes(), static_cast<int64>(6));
 	}
 
+	// Ir ate uma hora do dia: sempre para frente, e fica se ja esta nela
+	{
+		FDeverauxGameClock Clock;
+		Clock.SetGameTime(FTimespan::FromHours(8.0));
+		Clock.AdvanceToTimeOfDay(FTimespan::FromHours(12.0));
+		TestEqual(TEXT("08:00 ate as 12:00: mesmo dia"), Clock.ToDebugString(), FString(TEXT("Dia 1, 12:00")));
+		Clock.AdvanceToTimeOfDay(FTimespan::FromHours(6.0));
+		TestEqual(TEXT("12:00 ate as 06:00: dia seguinte, o tempo nao volta"), Clock.ToDebugString(), FString(TEXT("Dia 2, 06:00")));
+		Clock.AdvanceToTimeOfDay(FTimespan::FromHours(6.0));
+		TestEqual(TEXT("Ja nas 06:00: fica"), Clock.ToDebugString(), FString(TEXT("Dia 2, 06:00")));
+
+		Clock.AdvanceGameTime(FTimespan::FromSeconds(30.0));
+		Clock.AdvanceToTimeOfDay(FTimespan::FromHours(6.0));
+		TestEqual(TEXT("30 s depois das 06:00: fica, sem pular um dia"), Clock.GetGameTime().GetTicks(),
+			(FTimespan::FromHours(30.0) + FTimespan::FromSeconds(30.0)).GetTicks());
+
+		int32 Events = 0;
+		Clock.OnMinutePassed.AddLambda([&Events](int64) { ++Events; });
+		Clock.SetPaused(true);
+		Clock.AdvanceToTimeOfDay(FTimespan::FromHours(7.0));
+		TestEqual(TEXT("Pausado tambem anda"), Clock.ToDebugString(), FString(TEXT("Dia 2, 07:00")));
+		TestEqual(TEXT("Um evento por minuto que passou"), Events, 60);
+
+		Clock.AdvanceToTimeOfDay(FTimespan::FromHours(36.0));
+		TestEqual(TEXT("36 h vira 12:00"), Clock.ToDebugString(), FString(TEXT("Dia 2, 12:00")));
+		Clock.AdvanceToTimeOfDay(FTimespan::FromHours(-1.0));
+		TestEqual(TEXT("-1 h vira 23:00"), Clock.ToDebugString(), FString(TEXT("Dia 2, 23:00")));
+	}
+
 	// Quadro travado conta no maximo 1 s real
 	{
 		FDeverauxGameClock Clock;

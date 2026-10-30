@@ -49,6 +49,13 @@ public:
 	/** Poe o relogio num instante exato, por exemplo ao carregar um save. Nao dispara eventos. */
 	DEVERAUXSIM_API void SetGameTime(FTimespan NewGameTime);
 
+	/**
+	 * Avanca ate a proxima vez que o relogio marcar essa hora do dia, mesmo pausado: o tempo nunca volta.
+	 * Se ele ja marca essa hora (ate 1 minuto depois dela), fica onde esta em vez de pular um dia inteiro.
+	 * Mais de 24 h ou negativo vira a hora do dia correspondente.
+	 */
+	DEVERAUXSIM_API void AdvanceToTimeOfDay(FTimespan TimeOfDay);
+
 	/** Tempo de jogo desde o dia 1 as 00:00. */
 	FTimespan GetGameTime() const { return FTimespan(GameTicks); }
 

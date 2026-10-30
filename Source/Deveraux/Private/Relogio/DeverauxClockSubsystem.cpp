@@ -178,14 +178,9 @@ namespace DeverauxClockSubsystemPrivate
 				return;
 			}
 
-			// Vai ate a proxima vez que o relogio marcar essa hora; o tempo nunca volta. Se ele ja marca essa hora e
-			// esse minuto, fica onde esta: segundos depois da marca, a conta pura pulava um dia inteiro
+			// Vai ate a proxima vez que o relogio marcar essa hora; o tempo nunca volta
 			FDeverauxGameClock& GameClock = ClockSubsystem->GetClock();
-			const int64 TargetTicks = static_cast<int64>(Hour) * ETimespan::TicksPerHour + static_cast<int64>(Minute) * ETimespan::TicksPerMinute;
-			const int64 NowTicks = GameClock.GetTimeOfDay().GetTicks();
-			const int64 DeltaTicks = (TargetTicks - NowTicks + ETimespan::TicksPerDay) % ETimespan::TicksPerDay;
-			const bool bAlreadyThere = DeltaTicks > ETimespan::TicksPerDay - ETimespan::TicksPerMinute;
-			GameClock.AdvanceGameTime(FTimespan(bAlreadyThere ? 0 : DeltaTicks));
+			GameClock.AdvanceToTimeOfDay(FTimespan(static_cast<int64>(Hour) * ETimespan::TicksPerHour + static_cast<int64>(Minute) * ETimespan::TicksPerMinute));
 			LogClock(GameClock, Ar);
 		}
 	}

@@ -53,6 +53,18 @@ void FDeverauxGameClock::SetGameTime(FTimespan NewGameTime)
 	RealTickRemainder = 0.0;
 }
 
+void FDeverauxGameClock::AdvanceToTimeOfDay(FTimespan TimeOfDay)
+{
+	using namespace DeverauxGameClockPrivate;
+
+	const int64 TargetTicks = (TimeOfDay.GetTicks() % TicksPerDay + TicksPerDay) % TicksPerDay;
+	const int64 DeltaTicks = (TargetTicks - GameTicks % TicksPerDay + TicksPerDay) % TicksPerDay;
+
+	// Segundos depois da marca, a conta pura daria quase um dia inteiro de pulo
+	const bool bAlreadyThere = DeltaTicks > TicksPerDay - TicksPerMinute;
+	AdvanceGameTicks(bAlreadyThere ? 0 : DeltaTicks);
+}
+
 int64 FDeverauxGameClock::GetTotalMinutes() const
 {
 	return GameTicks / DeverauxGameClockPrivate::TicksPerMinute;

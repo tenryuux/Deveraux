@@ -246,9 +246,10 @@ namespace DeverauxSkyControllerPrivate
 		return Name;
 	}
 
+	/** O nome que o material padrao da 5.8 usa (a documentacao da Epic diz Layout_GlobalCoverage, que ele nao tem). */
 	const FName& CloudCoverageParameter()
 	{
-		static const FName Name(TEXT("Layout_GlobalCoverage"));
+		static const FName Name(TEXT("Cloud_GlobalCoverage"));
 		return Name;
 	}
 
@@ -315,6 +316,7 @@ namespace DeverauxSkyControllerPrivate
 		Clouds.ShadowAtmosphereStrength = FMath::Clamp(Settings.CloudShadowAtmosphereStrength, 0.0f, 1.0f);
 		Clouds.AtmosphereTraceScale = FMath::Clamp(Settings.AtmosphereShadowQuality, 1.0f, 8.0f);
 		Clouds.bSkyOcclusion = Settings.bCloudSkyOcclusion;
+		Clouds.SkyOcclusionResolutionScale = FMath::Clamp(Settings.CloudSkyOcclusionResolutionScale, 0.25f, 2.0f);
 		Clouds.bLightShafts = Settings.bLightShafts;
 		Clouds.DensityScale = FMath::Max(Settings.CloudDensityScale, 0.0f);
 		Clouds.CoverageOffset = Settings.CloudCoverageOffset;
@@ -676,12 +678,28 @@ void ADeverauxSkyController::ApplyClouds(const UDeverauxSkySettings& Settings)
 		ConfigureLightForClouds(Sun.Get(), Wanted);
 		ConfigureLightForClouds(MoonLight, Wanted);
 
-		// Com o ceu nublado, o Sky Light ilumina menos o chao
+		// Com o ceu nublado, o Sky Light ilumina menos o chao. O mapa disso e suave: resolucao baixa basta (a 1 ele
+		// custava 1,6 ms), e o raio e o da sombra das nuvens (o padrao da Unreal, 150 km, so espalharia os pontos)
 		if (USkyLightComponent* SkyLightComponent = SkyLight.Get())
 		{
+			bool bSkyLightChanged = false;
 			if ((SkyLightComponent->bCloudAmbientOcclusion != 0) != Wanted.bSkyOcclusion)
 			{
 				SkyLightComponent->bCloudAmbientOcclusion = Wanted.bSkyOcclusion;
+				bSkyLightChanged = true;
+			}
+			if (SkyLightComponent->CloudAmbientOcclusionMapResolutionScale != Wanted.SkyOcclusionResolutionScale)
+			{
+				SkyLightComponent->CloudAmbientOcclusionMapResolutionScale = Wanted.SkyOcclusionResolutionScale;
+				bSkyLightChanged = true;
+			}
+			if (SkyLightComponent->CloudAmbientOcclusionExtent != Wanted.ShadowExtentKm)
+			{
+				SkyLightComponent->CloudAmbientOcclusionExtent = Wanted.ShadowExtentKm;
+				bSkyLightChanged = true;
+			}
+			if (bSkyLightChanged)
+			{
 				SkyLightComponent->MarkRenderStateDirty();
 			}
 		}
@@ -794,10 +812,11 @@ FString ADeverauxSkyController::GetCloudDescription() const
 		Material = FString::Printf(TEXT("material %s | base %.2f | %s | %s"), *CloudMaterialName, AppliedClouds.BottomOcclusion, *Density, *Coverage);
 	}
 
+	const FString SkyOcclusion = AppliedClouds.bSkyOcclusion && SkyLight.IsValid()
+		? FString::Printf(TEXT("sim (resolucao x%.2f)"), AppliedClouds.SkyOcclusionResolutionScale) : FString(TEXT("nao"));
 	return FString::Printf(TEXT("nuvens: sombra %s (forca %.2f, %.0f km, resolucao x%.1f, raios no ar %.2f, passos no ar x%.1f) | raios na tela %s | luz do ceu tapada %s | %s"),
 		YesNo(AppliedClouds.bShadows), AppliedClouds.ShadowStrength, AppliedClouds.ShadowExtentKm, AppliedClouds.ShadowResolutionScale,
-		AppliedClouds.ShadowAtmosphereStrength, AppliedClouds.AtmosphereTraceScale, YesNo(AppliedClouds.bLightShafts),
-		YesNo(AppliedClouds.bSkyOcclusion && SkyLight.IsValid()), *Material);
+		AppliedClouds.ShadowAtmosphereStrength, AppliedClouds.AtmosphereTraceScale, YesNo(AppliedClouds.bLightShafts), *SkyOcclusion, *Material);
 }
 
 FString ADeverauxSkyController::GetLightDescription() const
@@ -825,15 +844,24 @@ FString ADeverauxSkyController::GetLightDescription() const
 			FogComponent->VolumetricFogDistance / 100.0f, FogComponent->VolumetricFogExtinctionScale, FogComponent->VolumetricFogScatteringDistribution);
 	}
 
+	FString SkyLightText(TEXT("o mapa nao tem Sky Light"));
+	if (const USkyLightComponent* SkyLightComponent = SkyLight.Get())
+	{
+		SkyLightText = SkyLightComponent->bCloudAmbientOcclusion
+			? FString::Printf(TEXT("nuvens tapando sim (resolucao x%.2f, %.0f km)"), SkyLightComponent->CloudAmbientOcclusionMapResolutionScale,
+				SkyLightComponent->CloudAmbientOcclusionExtent)
+			: FString(TEXT("nuvens tapando nao"));
+	}
+
 	const USkyAtmosphereComponent* AtmosphereComponent = Atmosphere.Get();
 	const FString AtmosphereText = AtmosphereComponent
 		? FString::Printf(TEXT("passos x%.1f (limite r.SkyAtmosphere.FastSkyLUT.SampleCountMax %s)"), AtmosphereComponent->TraceSampleCountScale,
 			*ConsoleValue(TEXT("r.SkyAtmosphere.FastSkyLUT.SampleCountMax")))
 		: FString(TEXT("o mapa nao tem Sky Atmosphere"));
 
-	return FString::Printf(TEXT("luzes agora: sol: %s | lua: %s | neblina volumetrica: %s | atmosfera: %s | r.VolumetricCloud.ShadowMap %s, r.VolumetricFog %s, MegaLights %s"),
-		*DescribeLight(Sun.Get()), *DescribeLight(MoonLight), *FogText, *AtmosphereText, *ConsoleValue(TEXT("r.VolumetricCloud.ShadowMap")),
-		*ConsoleValue(TEXT("r.VolumetricFog")), *ConsoleValue(TEXT("r.MegaLights.EnableForProject")));
+	return FString::Printf(TEXT("luzes agora: sol: %s | lua: %s | sky light: %s | neblina volumetrica: %s | atmosfera: %s | r.VolumetricCloud.ShadowMap %s, r.VolumetricCloud.SkyAO %s, r.VolumetricFog %s, MegaLights %s"),
+		*DescribeLight(Sun.Get()), *DescribeLight(MoonLight), *SkyLightText, *FogText, *AtmosphereText, *ConsoleValue(TEXT("r.VolumetricCloud.ShadowMap")),
+		*ConsoleValue(TEXT("r.VolumetricCloud.SkyAO")), *ConsoleValue(TEXT("r.VolumetricFog")), *ConsoleValue(TEXT("r.MegaLights.EnableForProject")));
 }
 
 void ADeverauxSkyController::ApplyVolumetricFog(const UDeverauxSkySettings& Settings)

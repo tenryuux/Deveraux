@@ -30,6 +30,7 @@ struct FDeverauxCloudSettings
 	float ShadowAtmosphereStrength = 0.0f;
 	float AtmosphereTraceScale = 0.0f;
 	bool bSkyOcclusion = false;
+	float SkyOcclusionResolutionScale = 0.0f;
 	bool bLightShafts = false;
 	float DensityScale = 0.0f;
 	float CoverageOffset = 0.0f;
@@ -39,7 +40,7 @@ struct FDeverauxCloudSettings
 	{
 		return bShadows == Other.bShadows && ShadowStrength == Other.ShadowStrength && ShadowExtentKm == Other.ShadowExtentKm
 			&& ShadowResolutionScale == Other.ShadowResolutionScale && ShadowAtmosphereStrength == Other.ShadowAtmosphereStrength
-			&& AtmosphereTraceScale == Other.AtmosphereTraceScale
+			&& AtmosphereTraceScale == Other.AtmosphereTraceScale && SkyOcclusionResolutionScale == Other.SkyOcclusionResolutionScale
 			&& bSkyOcclusion == Other.bSkyOcclusion && bLightShafts == Other.bLightShafts && DensityScale == Other.DensityScale
 			&& CoverageOffset == Other.CoverageOffset && BottomOcclusion == Other.BottomOcclusion;
 	}

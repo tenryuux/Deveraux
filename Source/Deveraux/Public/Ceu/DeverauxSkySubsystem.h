@@ -44,6 +44,12 @@ public:
 	/** O controlador criado neste mundo. Nulo se o ciclo esta desligado. */
 	ADeverauxSkyController* GetController() const;
 
+	/**
+	 * Desliga o Deveraux.Ceu.TesteSol, se ele estiver no meio, e a imagem volta ao normal: o benchmark mede a imagem
+	 * inteira. true se estava ligado. Na versao final (Shipping) o teste nao existe, e devolve false.
+	 */
+	static bool ResetSunTest();
+
 protected:
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
 

@@ -84,6 +84,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Meta", meta = (ClampMin = "10", ClampMax = "240"))
 	float MinimumFps = 55.0f;
 
+	/** Tela da meta, em pixels. Medido em outra, o relatorio avisa que os tempos nao comparam com a meta. 0 x 0 desliga o aviso. */
+	UPROPERTY(Config, EditAnywhere, Category = "Meta")
+	FIntPoint TargetResolution = FIntPoint(1920, 1080);
+
 	/** Segundos de espera depois de mudar de passo, para sombras, exposicao e shaders assentarem. */
 	UPROPERTY(Config, EditAnywhere, Category = "Tempo", meta = (ClampMin = "1", ClampMax = "60"))
 	float WarmupSeconds = 4.0f;

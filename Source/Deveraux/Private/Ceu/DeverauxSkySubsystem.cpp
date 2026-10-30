@@ -129,9 +129,21 @@ namespace DeverauxSkySubsystemPrivate
 	constexpr int32 SunTestStepCount = UE_ARRAY_COUNT(SunTestSteps);
 	constexpr int32 SunTestMessageKey = 7102;
 
+	/** O aviso de um passo fica na tela ate o proximo passo; o de "tudo normal" so alguns segundos. */
+	constexpr float SunTestStepSeconds = 600.0f;
+	constexpr float SunTestDoneSeconds = 5.0f;
+
 	/** Passo desligado agora (0 = nenhum) e o valor que o console variable dele tinha antes. */
 	int32 SunTestStep = 0;
 	FString SunTestSavedValue;
+
+	void ShowSunTestMessage(const FString& Text, float Seconds)
+	{
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(SunTestMessageKey, Seconds, FColor::Yellow, Text);
+		}
+	}
 
 	void RestoreSunTest()
 	{
@@ -141,17 +153,11 @@ namespace DeverauxSkySubsystemPrivate
 			{
 				Variable->Set(*SunTestSavedValue, ECVF_SetByConsole);
 			}
+
+			// Troca o aviso do passo, que ficaria minutos na tela, ate no proximo Play
+			ShowSunTestMessage(TEXT("Teste do sol: tudo normal de novo."), SunTestDoneSeconds);
 		}
 		SunTestStep = 0;
-	}
-
-	void ShowSunTestMessage(FOutputDevice& Ar, const FString& Text)
-	{
-		Ar.Log(*Text);
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(SunTestMessageKey, 600.0f, FColor::Yellow, Text);
-		}
 	}
 
 	/** Desliga uma peca de cada vez. Sem numero: a proxima; com numero, aquela; 0 volta tudo ao normal. */
@@ -174,7 +180,9 @@ namespace DeverauxSkySubsystemPrivate
 		}
 		if (!Variable || Next < 1 || Next > SunTestStepCount)
 		{
-			ShowSunTestMessage(Ar, TEXT("Teste do sol: tudo normal de novo. Rode Deveraux.Ceu.TesteSol para comecar."));
+			const FString Text(TEXT("Teste do sol: tudo normal de novo. Rode Deveraux.Ceu.TesteSol para comecar."));
+			Ar.Log(*Text);
+			ShowSunTestMessage(Text, SunTestDoneSeconds);
 			return;
 		}
 
@@ -182,8 +190,10 @@ namespace DeverauxSkySubsystemPrivate
 		SunTestSavedValue = Variable->GetString();
 		Variable->Set(Step.OffValue, ECVF_SetByConsole);
 		SunTestStep = Next;
-		ShowSunTestMessage(Ar, FString::Printf(TEXT("Teste do sol %d/%d: SEM %s. Olhe para o sol: parou de tremer? Rode de novo para o proximo (0 volta tudo)."),
-			Next, SunTestStepCount, Step.Description));
+		const FString Text = FString::Printf(TEXT("Teste do sol %d/%d: SEM %s. Olhe para o sol: parou de tremer? Rode de novo para o proximo (0 volta tudo)."),
+			Next, SunTestStepCount, Step.Description);
+		Ar.Log(*Text);
+		ShowSunTestMessage(Text, SunTestStepSeconds);
 	}
 }
 

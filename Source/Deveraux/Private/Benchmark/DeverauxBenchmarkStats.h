@@ -54,7 +54,11 @@ struct FDeverauxStepResult
 	/** "12:00, 40 NPCs". */
 	FString Describe() const;
 
-	/** O que segura o quadro: game thread, render thread, RHI ou GPU, o maior dos tempos medios. */
+	/**
+	 * O que segura o quadro: a game thread ou a GPU, se uma das duas ocupa quase o quadro inteiro (85%); senao, o maior
+	 * dos quatro tempos medios. O render thread e o RHI contam tambem o tempo esperando a GPU e, com ela ocupada,
+	 * marcam perto do quadro inteiro sem ser eles que seguram.
+	 */
 	const TCHAR* Bottleneck() const;
 };
 
@@ -85,8 +89,9 @@ namespace DeverauxBenchmark
 	TArray<FString> BuildTable(const TArray<FDeverauxStepResult>& Results, double TargetFps, double MinimumFps);
 
 	/**
-	 * Conclusoes: custo do ceu, custo de cada NPC, maior multidao acima do minimo, efeito da otimizacao
-	 * e o resultado. bOutPassed fica false se um passo que conta ficou abaixo do minimo.
+	 * Conclusoes: custo do ceu, custo de cada NPC, maior multidao acima do minimo, efeito da otimizacao, uma nota
+	 * quando o render thread marca mais que o limite apontado e, por ultimo, o resultado. bOutPassed fica false se
+	 * um passo que conta ficou abaixo do minimo.
 	 */
 	TArray<FString> BuildSummary(const TArray<FDeverauxStepResult>& Results, double TargetFps, double MinimumFps, bool& bOutPassed);
 

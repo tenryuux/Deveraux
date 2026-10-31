@@ -163,7 +163,7 @@ bool FDeverauxBenchmarkStatsTest::RunTest(const FString& Parameters)
 		const TArray<FString> Summary = DeverauxBenchmark::BuildSummary(Results, 60.0, 55.0, bPassed);
 		TestFalse(TEXT("40 NPCs no crepusculo a 52,6 fps reprova"), bPassed);
 		TestTrue(TEXT("O ceu sozinho em cada hora"), HasLine(Summary, TEXT("Sem NPCs, GPU: 12:00 9.0 ms (100 fps) | crepusculo 18:12 11.5 ms (80 fps) | 00:00 10.0 ms (91 fps)")));
-		TestTrue(TEXT("Custo por NPC pela multidao do meio-dia"), HasLine(Summary, TEXT("Cada NPC custa (12:00, de 0 a 100 NPCs): game thread 0.050 ms, render thread 0.020 ms, GPU 0.050 ms")));
+		TestTrue(TEXT("Custo por NPC pela multidao do meio-dia, sem o render thread"), HasLine(Summary, TEXT("Cada NPC custa (12:00, de 0 a 100 NPCs): game thread 0.050 ms, GPU 0.050 ms")));
 		TestTrue(TEXT("Maior multidao acima de 55 fps"), HasLine(Summary, TEXT("Maior multidao medida com 55 fps ou mais: 60 NPCs (58.8 fps)")));
 		TestTrue(TEXT("Efeito da otimizacao"), HasLine(Summary, TEXT("Otimizacao com 100 NPCs: game thread 8.0 -> 6.0 ms, GPU 14.0 -> 13.5 ms, 47.6 -> 55.6 fps")));
 		TestTrue(TEXT("O resultado diz qual passo reprovou"), HasLine(Summary, TEXT("RESULTADO: fora do orcamento. Abaixo de 55 fps: passo 11 (crepusculo 18:12, 40 NPCs, 52.6 fps).")));
@@ -185,6 +185,39 @@ bool FDeverauxBenchmarkStatsTest::RunTest(const FString& Parameters)
 		const TArray<FString> Summary = DeverauxBenchmark::BuildSummary(MakeRun(17.5), 60.0, 55.0, bPassed);
 		TestTrue(TEXT("57,1 fps no crepusculo passa"), bPassed);
 		TestTrue(TEXT("Resultado dentro do orcamento"), HasLine(Summary, TEXT("RESULTADO: dentro do orcamento.")));
+	}
+
+	// Limite: o render thread e o RHI contam tambem o tempo esperando a GPU
+	{
+		// Benchmark de 31/10/2026, jogo empacotado, sem NPCs: GPU ocupada 93% do quadro e render thread esticado ate ele
+		FDeverauxStepResult Result = MakeStep(12.0, false, 0, false, true, 14.4, 2.0, 14.4, 13.3);
+		TestTrue(TEXT("GPU ocupada quase o quadro inteiro: limite na GPU, mesmo com o render thread marcando mais"), FString(Result.Bottleneck()) == FString(TEXT("GPU")));
+
+		Result = MakeStep(12.0, false, 60, false, false, 15.9, 15.1, 14.7, 14.8);
+		TestTrue(TEXT("Game thread e GPU perto do quadro inteiro: a maior das duas"), FString(Result.Bottleneck()) == FString(TEXT("game thread")));
+
+		Result = MakeStep(12.0, false, 80, false, false, 20.0, 19.0, 19.5, 10.0);
+		TestTrue(TEXT("So a game thread perto do quadro inteiro: limite nela"), FString(Result.Bottleneck()) == FString(TEXT("game thread")));
+
+		Result = MakeStep(12.0, false, 0, false, true, 20.0, 5.0, 19.0, 17.2);
+		TestTrue(TEXT("GPU em 86% do quadro: limite na GPU"), FString(Result.Bottleneck()) == FString(TEXT("GPU")));
+		Result.AvgGpuMs = 16.8;
+		TestTrue(TEXT("GPU em 84% do quadro: vale o maior dos quatro, o render thread"), FString(Result.Bottleneck()) == FString(TEXT("render thread")));
+		Result.AvgRhiThreadMs = 19.5;
+		TestTrue(TEXT("RHI o maior dos quatro: limite no RHI"), FString(Result.Bottleneck()) == FString(TEXT("RHI")));
+	}
+
+	// Nota do limite no resumo: so quando o render thread ou o RHI marcam mais que o limite apontado
+	{
+		bool bPassed = false;
+		TArray<FDeverauxStepResult> Results = MakeRun(15.0);
+		TestFalse(TEXT("Render thread abaixo do limite: sem a nota"), HasLine(DeverauxBenchmark::BuildSummary(Results, 60.0, 55.0, bPassed), TEXT("Limite: o render thread")));
+
+		Results[0].AvgRenderThreadMs = 10.5;
+		TestTrue(TEXT("Render thread acima da GPU no limite: a nota explica"), HasLine(DeverauxBenchmark::BuildSummary(Results, 60.0, 55.0, bPassed), TEXT("Limite: o render thread")));
+
+		Results[0] = MakeStep(12.0, false, 0, false, true, 20.0, 5.0, 19.0, 9.0);
+		TestFalse(TEXT("Render thread no limite de verdade: sem a nota"), HasLine(DeverauxBenchmark::BuildSummary(Results, 60.0, 55.0, bPassed), TEXT("Limite: o render thread")));
 	}
 
 	return true;

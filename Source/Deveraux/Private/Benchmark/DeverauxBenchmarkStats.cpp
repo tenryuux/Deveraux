@@ -44,6 +44,18 @@ namespace DeverauxBenchmarkStatsPrivate
 		}
 		return Seen.Num();
 	}
+
+	/**
+	 * A game thread ou a GPU que ocupa pelo menos esta parte do quadro e quem segura o quadro. Mesmo no limite, a GPU
+	 * fica parada um pouco entre um quadro e outro: no benchmark de 31/10/2026, ela ficou ocupada 93% do quadro.
+	 */
+	constexpr double BusyFrameShare = 0.85;
+
+	/** A game thread ou a GPU ocupa quase o quadro inteiro. Nenhuma das duas conta espera no stat unit. */
+	bool IsGameOrGpuBound(const FDeverauxStepResult& Result)
+	{
+		return FMath::Max(Result.AvgGameThreadMs, Result.AvgGpuMs) >= BusyFrameShare * Result.AvgFrameMs;
+	}
 }
 
 double FDeverauxStepResult::AvgFps() const
@@ -69,6 +81,16 @@ FString FDeverauxStepResult::Describe() const
 
 const TCHAR* FDeverauxStepResult::Bottleneck() const
 {
+	using namespace DeverauxBenchmarkStatsPrivate;
+
+	// O stat unit conta, no render thread e no RHI, o tempo que eles passam esperando a GPU: com ela ocupada, eles
+	// esticam ate perto do tempo do quadro sem estar trabalhando. A game thread e a GPU nao contam espera
+	if (IsGameOrGpuBound(*this))
+	{
+		return AvgGpuMs > AvgGameThreadMs ? TEXT("GPU") : TEXT("game thread");
+	}
+
+	// Nenhuma das duas perto do quadro inteiro: o maior dos quatro
 	const TCHAR* Name = TEXT("game thread");
 	double Worst = AvgGameThreadMs;
 	if (AvgRenderThreadMs > Worst)
@@ -291,7 +313,6 @@ TArray<FString> DeverauxBenchmark::BuildSummary(const TArray<FDeverauxStepResult
 	{
 		TArray<double> Counts;
 		TArray<double> GameThread;
-		TArray<double> RenderThread;
 		TArray<double> Gpu;
 		int32 MinCount = MAX_int32;
 		int32 MaxCount = 0;
@@ -300,21 +321,20 @@ TArray<FString> DeverauxBenchmark::BuildSummary(const TArray<FDeverauxStepResult
 			const FDeverauxStepResult& Result = Results[Index];
 			Counts.Add(Result.NpcCount);
 			GameThread.Add(Result.AvgGameThreadMs);
-			RenderThread.Add(Result.AvgRenderThreadMs);
 			Gpu.Add(Result.AvgGpuMs);
 			MinCount = FMath::Min(MinCount, Result.NpcCount);
 			MaxCount = FMath::Max(MaxCount, Result.NpcCount);
 		}
 
+		// Sem o render thread: ele conta a espera pela GPU, que some quando a game thread passa a segurar o quadro,
+		// e a conta por NPC sai ate negativa
 		double Intercept = 0.0;
 		double GameSlope = 0.0;
-		double RenderSlope = 0.0;
 		double GpuSlope = 0.0;
 		FitLine(Counts, GameThread, Intercept, GameSlope);
-		FitLine(Counts, RenderThread, Intercept, RenderSlope);
 		FitLine(Counts, Gpu, Intercept, GpuSlope);
-		Lines.Add(FString::Printf(TEXT("Cada NPC custa (%s, de %d a %d NPCs): game thread %.3f ms, render thread %.3f ms, GPU %.3f ms"),
-			*Results[Crowd[0]].DescribeTime(), MinCount, MaxCount, GameSlope, RenderSlope, GpuSlope));
+		Lines.Add(FString::Printf(TEXT("Cada NPC custa (%s, de %d a %d NPCs): game thread %.3f ms, GPU %.3f ms"),
+			*Results[Crowd[0]].DescribeTime(), MinCount, MaxCount, GameSlope, GpuSlope));
 
 		int32 Largest = 0;
 		double LargestFps = 0.0;
@@ -348,6 +368,17 @@ TArray<FString> DeverauxBenchmark::BuildSummary(const TArray<FDeverauxStepResult
 					Plain.AvgFps(), Optimized.AvgFps()));
 				break;
 			}
+		}
+	}
+
+	// O render thread ou o RHI marcando mais que o limite apontado: sem esta nota, a tabela parece errada
+	for (const FDeverauxStepResult& Result : Results)
+	{
+		if (IsGameOrGpuBound(Result)
+			&& FMath::Max(Result.AvgRenderThreadMs, Result.AvgRhiThreadMs) > FMath::Max(Result.AvgGameThreadMs, Result.AvgGpuMs))
+		{
+			Lines.Add(TEXT("Limite: o render thread e o RHI contam tambem o tempo esperando a GPU. Quando a game thread ou a GPU ocupa quase o quadro inteiro, o limite e ela, mesmo com o render thread marcando mais."));
+			break;
 		}
 	}
 

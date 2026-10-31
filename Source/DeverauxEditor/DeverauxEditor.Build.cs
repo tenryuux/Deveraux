@@ -10,6 +10,7 @@ public class DeverauxEditor : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
-		PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "Deveraux", "DeverauxSim", "DeverauxBattle" });
+		// AnimGraph e BlueprintGraph: nos do Animation Blueprint (o squash do corpo)
+		PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "AnimGraph", "BlueprintGraph", "Deveraux", "DeverauxSim", "DeverauxBattle" });
 	}
 }

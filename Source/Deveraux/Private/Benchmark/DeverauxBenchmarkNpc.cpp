@@ -186,7 +186,7 @@ void ADeverauxBenchmarkNpcController::MoveToRandomPoint()
 
 	// Com NavMesh, um ponto que da para alcancar e o caminho ate ele; sem NavMesh, linha reta ate o ponto sorteado
 	bool bUsePathfinding = false;
-	if (const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent<UNavigationSystemV1>(GetWorld()))
+	if (const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(GetWorld()))
 	{
 		FNavLocation NavLocation;
 		if (NavSystem->GetRandomReachablePointInRadius(Npc->GetAreaCenter(), Npc->GetAreaRadius(), NavLocation, nullptr, nullptr))

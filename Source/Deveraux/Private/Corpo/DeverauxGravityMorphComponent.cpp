@@ -83,10 +83,66 @@ void UDeverauxGravityMorphComponent::SetGravityMorphsEnabled(bool bInEnabled)
 
 USkeletalMeshComponent* UDeverauxGravityMorphComponent::FindMesh()
 {
-	const AActor* Owner = GetOwner();
-	USkeletalMeshComponent* MeshComponent = Owner ? Owner->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
-	Mesh = MeshComponent;
-	return MeshComponent;
+	// O ator pode ter mais de uma Skeletal Mesh (cabelo, roupa): o corpo e a que tem mais shape keys de gravidade
+	USkeletalMeshComponent* Best = nullptr;
+	int32 BestCount = -1;
+	if (const AActor* OwnerActor = GetOwner())
+	{
+		TArray<USkeletalMeshComponent*> Candidates;
+		OwnerActor->GetComponents(Candidates);
+		for (USkeletalMeshComponent* Candidate : Candidates)
+		{
+			const int32 Count = CountMorphTargets(Candidate->GetSkeletalMeshAsset());
+			if (Count > BestCount)
+			{
+				Best = Candidate;
+				BestCount = Count;
+			}
+		}
+	}
+	Mesh = Best;
+	return Best;
+}
+
+int32 UDeverauxGravityMorphComponent::CountMorphTargets(const USkeletalMesh* Asset) const
+{
+	int32 Count = 0;
+	if (Asset)
+	{
+		for (const FDeverauxGravityMorph& Morph : Morphs)
+		{
+			Count += Asset->FindMorphTarget(Morph.MorphTarget) ? 1 : 0;
+		}
+	}
+	return Count;
+}
+
+void UDeverauxGravityMorphComponent::CheckMorphTargets(const USkeletalMesh* Asset)
+{
+	// Sem a shape key, SetMorphTarget nao faz nada nem avisa: avisa aqui, uma vez por malha
+	MissingMorphTargets.Reset();
+	if (!Asset)
+	{
+		return;
+	}
+	FString Names;
+	for (const FDeverauxGravityMorph& Morph : Morphs)
+	{
+		if (!Asset->FindMorphTarget(Morph.MorphTarget))
+		{
+			MissingMorphTargets.Add(Morph.MorphTarget);
+			if (!Names.IsEmpty())
+			{
+				Names += TEXT(", ");
+			}
+			Names += Morph.MorphTarget.ToString();
+		}
+	}
+	if (MissingMorphTargets.Num() > 0)
+	{
+		UE_LOG(LogDeverauxGravidade, Warning, TEXT("%s: a malha %s nao tem as shape keys %s. Confira o Import Morph Targets na importacao e os nomes em Morphs."),
+			*GetNameSafe(GetOwner()), *GetNameSafe(Asset), *Names);
+	}
 }
 
 bool UDeverauxGravityMorphComponent::CacheBone(const USkeletalMeshComponent& MeshComponent)
@@ -96,6 +152,10 @@ bool UDeverauxGravityMorphComponent::CacheBone(const USkeletalMeshComponent& Mes
 	if (CachedBone == Bone && BoneIndex != INDEX_NONE && CachedAsset.Get() == Asset)
 	{
 		return true;
+	}
+	if (CachedAsset.Get() != Asset)
+	{
+		CheckMorphTargets(Asset);
 	}
 	CachedAsset = Asset;
 	BoneIndex = INDEX_NONE;
@@ -153,8 +213,14 @@ namespace DeverauxGravityMorphPrivate
 				const float Weight = Component->GetWeights().IsValidIndex(Index) ? Component->GetWeights()[Index] : 0.0f;
 				Weights += FString::Printf(TEXT(" | %s %.2f"), *Component->Morphs[Index].MorphTarget.ToString(), Weight);
 			}
-			Ar.Logf(TEXT("%s: gravidade (%.2f, %.2f, %.2f) no espaco da malha em pe%s%s"), *GetNameSafe(Component->GetOwner()),
-				Gravity.X, Gravity.Y, Gravity.Z, *Weights,
+			FString Missing;
+			for (const FName& Name : Component->GetMissingMorphTargets())
+			{
+				Missing += Missing.IsEmpty() ? TEXT(" | sem as shape keys ") : TEXT(", ");
+				Missing += Name.ToString();
+			}
+			Ar.Logf(TEXT("%s: gravidade (%.2f, %.2f, %.2f) no espaco da malha em pe%s%s%s"), *GetNameSafe(Component->GetOwner()),
+				Gravity.X, Gravity.Y, Gravity.Z, *Weights, *Missing,
 				Component->IsBoneMissing() ? TEXT(" | sem o osso do tronco") : (Component->AreGravityMorphsEnabled() ? TEXT("") : TEXT(" | desligado")));
 		}
 		if (Count == 0)

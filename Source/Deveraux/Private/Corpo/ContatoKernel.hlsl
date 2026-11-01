@@ -28,7 +28,8 @@
 // rodando, o comando Deveraux.Corpo.Contato diz quantas delas o deformer aceitou (10 de 10 = tudo certo).
 //
 // Formato: Esfera = centro em XYZ e raio em W (raio 0 = desligada). Caixa = centro em XYZ com W 1 (W 0 = desligada)
-// e tres eixos unitarios em XYZ, com a meia largura daquele eixo em W.
+// e tres eixos unitarios em XYZ, com a meia largura daquele eixo em W. O eixo Z da caixa aponta para o corpo (o
+// componente escolhe a face virada para ele): a carne sai por ela ou pelos lados, nunca pela face de tras.
 
 if (Index >= ReadNumThreads().x)
 {
@@ -54,7 +55,9 @@ if (Mascara > 0.0f)
 		}
 	}
 
-	// Chao e assento: o ponto que entrou na caixa sai pela face mais perto, o que achata a carne contra ela
+	// Chao, assento e encosto: o ponto que entrou na caixa sai pela face virada para o corpo (+Z) ou por um lado, o
+	// que for mais perto, e a carne achata contra ela. Nunca pela face de tras: numa caixa fina, a carne que afundou
+	// mais que meia espessura volta para cima, sem atravessar
 	const float4 Centros[2] = { ReadCaixa0Centro(), ReadCaixa1Centro() };
 	const float4 EixosX[2] = { ReadCaixa0EixoX(), ReadCaixa1EixoX() };
 	const float4 EixosY[2] = { ReadCaixa0EixoY(), ReadCaixa1EixoY() };
@@ -66,21 +69,23 @@ if (Mascara > 0.0f)
 		{
 			const float3 Relativo = P - Centros[C].xyz;
 			const float3 Local = float3(dot(Relativo, EixosX[C].xyz), dot(Relativo, EixosY[C].xyz), dot(Relativo, EixosZ[C].xyz));
-			const float3 Fundo = float3(EixosX[C].w, EixosY[C].w, EixosZ[C].w) - abs(Local);
-			if (all(Fundo > 0.0f))
+			const float3 Meia = float3(EixosX[C].w, EixosY[C].w, EixosZ[C].w);
+			if (all(abs(Local) < Meia))
 			{
-				const float3 Lado = float3(Local.x >= 0.0f ? 1.0f : -1.0f, Local.y >= 0.0f ? 1.0f : -1.0f, Local.z >= 0.0f ? 1.0f : -1.0f);
-				if (Fundo.x <= Fundo.y && Fundo.x <= Fundo.z)
+				const float FundoX = Meia.x - abs(Local.x);
+				const float FundoY = Meia.y - abs(Local.y);
+				const float FundoZ = Meia.z - Local.z;
+				if (FundoZ <= FundoX && FundoZ <= FundoY)
 				{
-					P += EixosX[C].xyz * (Lado.x * Fundo.x);
+					P += EixosZ[C].xyz * FundoZ;
 				}
-				else if (Fundo.y <= Fundo.z)
+				else if (FundoX <= FundoY)
 				{
-					P += EixosY[C].xyz * (Lado.y * Fundo.y);
+					P += EixosX[C].xyz * (Local.x >= 0.0f ? FundoX : -FundoX);
 				}
 				else
 				{
-					P += EixosZ[C].xyz * (Lado.z * Fundo.z);
+					P += EixosY[C].xyz * (Local.y >= 0.0f ? FundoY : -FundoY);
 				}
 			}
 		}

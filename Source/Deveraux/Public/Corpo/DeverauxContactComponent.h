@@ -15,8 +15,9 @@ class USphereComponent;
  * Contato do corpo: a cada quadro, manda ao Deformer Graph da malha as esferas (maos) e as caixas (chao, assento)
  * dos atores com a tag ContactTag, no espaco da malha, e o grafo empurra para fora a carne que entra nelas.
  * Variaveis do grafo, todas Vector 4: Esfera0 e Esfera1 (centro e raio, raio 0 = desligada) e, para cada caixa
- * N (0 e 1), CaixaNCentro (W 0 = desligada), CaixaNEixoX, CaixaNEixoY e CaixaNEixoZ (eixo e meia largura).
- * O kernel que usa isso fica em Private/Corpo/ContatoKernel.hlsl.
+ * N (0 e 1), CaixaNCentro (W 0 = desligada), CaixaNEixoX, CaixaNEixoY e CaixaNEixoZ (eixo e meia largura; o Z
+ * aponta para o corpo, pela face por onde a carne sai). O kernel que usa isso fica em Private/Corpo/ContatoKernel.hlsl.
+ * Vai no ator do personagem e usa a Skeletal Mesh dele que tem deformer.
  */
 UCLASS(ClassGroup = (Deveraux), meta = (BlueprintSpawnableComponent))
 class DEVERAUX_API UDeverauxContactComponent : public UActorComponent

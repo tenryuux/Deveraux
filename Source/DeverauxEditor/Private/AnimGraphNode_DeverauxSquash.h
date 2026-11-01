@@ -22,4 +22,7 @@ public:
 	virtual FText GetTooltipText() const override;
 	virtual FString GetNodeCategory() const override;
 	virtual FLinearColor GetNodeTitleColor() const override;
+
+	/** Avisos na compilacao do Animation Blueprint: pino de pose solto, nenhuma massa, osso que nao existe. */
+	virtual void ValidateAnimNodeDuringCompilation(class USkeleton* ForSkeleton, class FCompilerResultsLog& MessageLog) override;
 };

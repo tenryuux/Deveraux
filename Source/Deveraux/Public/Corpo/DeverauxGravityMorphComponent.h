@@ -42,7 +42,8 @@ struct DEVERAUX_API FDeverauxGravityMorph
 /**
  * Morphs de gravidade: le a inclinacao do tronco e da o peso de cada shape key, para as massas se acomodarem para o
  * lado que a gravidade puxa (deitada de costas, de brucos ou de lado). Em pe, todas ficam em zero: a escultura
- * em pe ja tem a gravidade normal. Vai no ator do personagem e usa a primeira Skeletal Mesh dele.
+ * em pe ja tem a gravidade normal. Vai no ator do personagem e usa a Skeletal Mesh dele com mais dessas shape keys
+ * (o ator pode ter outras, como cabelo e roupa).
  */
 UCLASS(ClassGroup = (Deveraux), meta = (BlueprintSpawnableComponent))
 class DEVERAUX_API UDeverauxGravityMorphComponent : public UActorComponent
@@ -86,13 +87,19 @@ public:
 	/** O osso nao existe na malha: nada e calculado. */
 	bool IsBoneMissing() const { return bBoneMissing; }
 
+	/** Shape keys de Morphs que a malha nao tem (Import Morph Targets desligado, ou nome diferente). */
+	const TArray<FName>& GetMissingMorphTargets() const { return MissingMorphTargets; }
+
 private:
 	USkeletalMeshComponent* FindMesh();
+	int32 CountMorphTargets(const USkeletalMesh* Asset) const;
+	void CheckMorphTargets(const USkeletalMesh* Asset);
 	bool CacheBone(const USkeletalMeshComponent& MeshComponent);
 	void ClearMorphs();
 
 	TWeakObjectPtr<USkeletalMeshComponent> Mesh;
 	TWeakObjectPtr<const USkeletalMesh> CachedAsset;
+	TArray<FName> MissingMorphTargets;
 	TArray<float> Weights;
 	FVector LastGravity = FVector(0.0, 0.0, -1.0);
 	FQuat BoneRefRotation = FQuat::Identity;

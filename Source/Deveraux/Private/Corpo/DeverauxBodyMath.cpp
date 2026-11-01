@@ -86,16 +86,31 @@ FVector4 DeverauxBody::PackSphere(const FTransform& MeshToWorld, const FVector& 
 	return FVector4(MeshToWorld.InverseTransformPosition(CenterWorld), RadiusWorld / MeshScale(MeshToWorld));
 }
 
-void DeverauxBody::PackBox(const FTransform& MeshToWorld, const FTransform& BoxToWorld, const FVector& HalfExtentWorld, FVector4 OutBox[4])
+void DeverauxBody::PackBox(const FTransform& MeshToWorld, const FTransform& BoxToWorld, const FVector& HalfExtentWorld,
+	const FVector& BodyCenterWorld, FVector4 OutBox[4])
 {
 	using namespace DeverauxBodyMathPrivate;
 
 	const double Scale = MeshScale(MeshToWorld);
 	const FQuat BoxRotation = BoxToWorld.GetRotation();
 	const FVector Axes[3] = { BoxRotation.GetAxisX(), BoxRotation.GetAxisY(), BoxRotation.GetAxisZ() };
-	OutBox[0] = FVector4(MeshToWorld.InverseTransformPosition(BoxToWorld.GetLocation()), 1.0);
-	for (int32 Axis = 0; Axis < 3; ++Axis)
+
+	// A face virada para o corpo: o eixo em que o centro dele fica mais para fora da caixa. No empate, o Z da caixa
+	const FVector BodyInBox = BoxRotation.UnrotateVector(BodyCenterWorld - BoxToWorld.GetLocation());
+	int32 Up = 2;
+	for (int32 Axis = 0; Axis < 2; ++Axis)
 	{
-		OutBox[Axis + 1] = FVector4(MeshToWorld.InverseTransformVectorNoScale(Axes[Axis]), HalfExtentWorld[Axis] / Scale);
+		if (FMath::Abs(BodyInBox[Axis]) - HalfExtentWorld[Axis] > FMath::Abs(BodyInBox[Up]) - HalfExtentWorld[Up])
+		{
+			Up = Axis;
+		}
 	}
+	const double Side = BodyInBox[Up] >= 0.0 ? 1.0 : -1.0;
+	const int32 First = (Up + 1) % 3;
+	const int32 Second = (Up + 2) % 3;
+
+	OutBox[0] = FVector4(MeshToWorld.InverseTransformPosition(BoxToWorld.GetLocation()), 1.0);
+	OutBox[1] = FVector4(MeshToWorld.InverseTransformVectorNoScale(Axes[First]), HalfExtentWorld[First] / Scale);
+	OutBox[2] = FVector4(MeshToWorld.InverseTransformVectorNoScale(Axes[Second]), HalfExtentWorld[Second] / Scale);
+	OutBox[3] = FVector4(MeshToWorld.InverseTransformVectorNoScale(Axes[Up] * Side), HalfExtentWorld[Up] / Scale);
 }

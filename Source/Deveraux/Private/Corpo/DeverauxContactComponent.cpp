@@ -76,6 +76,19 @@ namespace DeverauxContactPrivate
 		return Params.ReturnValue;
 	}
 
+	/** A malha tem deformer em algum LOD. */
+	bool HasDeformer(const USkeletalMeshComponent& MeshComponent)
+	{
+		for (int32 Lod = 0; Lod < MeshComponent.GetNumLODs(); ++Lod)
+		{
+			if (MeshComponent.GetMeshDeformerInstanceForLOD(Lod))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** Distancia do ponto ate a caixa; 0 dentro dela. */
 	double DistanceToBox(const UBoxComponent& Box, const FVector& Point)
 	{
@@ -128,6 +141,13 @@ void UDeverauxContactComponent::RefreshContacts()
 	Spheres.Reset();
 	Boxes.Reset();
 
+	// A malha sem deformer (ou ainda sem): procura de novo, o deformer pode ter chegado depois
+	const USkeletalMeshComponent* Current = Mesh.Get();
+	if (!Current || !DeverauxContactPrivate::HasDeformer(*Current))
+	{
+		FindMesh();
+	}
+
 	TArray<AActor*> Actors;
 	UGameplayStatics::GetAllActorsWithTag(this, ContactTag, Actors);
 	TArray<USphereComponent*> ActorSpheres;
@@ -164,10 +184,24 @@ FName UDeverauxContactComponent::GetVariableName(int32 Index)
 
 USkeletalMeshComponent* UDeverauxContactComponent::FindMesh()
 {
-	const AActor* Actor = GetOwner();
-	USkeletalMeshComponent* MeshComponent = Actor ? Actor->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
-	Mesh = MeshComponent;
-	return MeshComponent;
+	// O ator pode ter mais de uma Skeletal Mesh (cabelo, roupa): o corpo e a que tem o deformer; sem nenhuma, a primeira
+	USkeletalMeshComponent* Found = nullptr;
+	if (const AActor* OwnerActor = GetOwner())
+	{
+		TArray<USkeletalMeshComponent*> Candidates;
+		OwnerActor->GetComponents(Candidates);
+		for (USkeletalMeshComponent* Candidate : Candidates)
+		{
+			if (DeverauxContactPrivate::HasDeformer(*Candidate))
+			{
+				Found = Candidate;
+				break;
+			}
+			Found = Found ? Found : Candidate;
+		}
+	}
+	Mesh = Found;
+	return Found;
 }
 
 void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshComponent)
@@ -216,7 +250,7 @@ void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshCo
 	{
 		const UBoxComponent& Box = *NearBoxes[Index].Value;
 		FVector4 Packed[4];
-		DeverauxBody::PackBox(MeshToWorld, Box.GetComponentTransform(), Box.GetScaledBoxExtent(), Packed);
+		DeverauxBody::PackBox(MeshToWorld, Box.GetComponentTransform(), Box.GetScaledBoxExtent(), BodyCenter, Packed);
 		for (int32 Part = 0; Part < 4; ++Part)
 		{
 			LastValues[MaxSpheres + Index * 4 + Part] = Packed[Part];

@@ -91,12 +91,41 @@ bool FDeverauxBodyMathTest::RunTest(const FString& Parameters)
 		const FTransform BigMesh(FQuat::Identity, FVector::ZeroVector, FVector(2.0, 2.0, 2.0));
 		TestTrue(TEXT("Malha com escala 2: posicao e raio pela metade"), Near4(DeverauxBody::PackSphere(BigMesh, FVector(0.0, 40.0, 0.0), 10.0f), 0.0, 20.0, 0.0, 5.0));
 
+		// Chao com o corpo em cima: a face de saida e a de cima, no terceiro eixo
+		const FTransform FloorToWorld(FQuat::Identity, FVector(100.0, 0.0, -25.0));
+		const FVector FloorHalf(200.0, 100.0, 25.0);
 		FVector4 Box[4];
-		DeverauxBody::PackBox(MeshToWorld, FTransform(FQuat::Identity, FVector(100.0, 0.0, -25.0)), FVector(200.0, 100.0, 25.0), Box);
+		DeverauxBody::PackBox(MeshToWorld, FloorToWorld, FloorHalf, FVector(100.0, 0.0, 90.0), Box);
 		TestTrue(TEXT("Caixa: centro ligado (W 1)"), Near4(Box[0], 0.0, 0.0, -25.0, 1.0));
 		TestTrue(TEXT("Caixa: eixo X do mundo vira -Y da malha, com a meia largura"), Near4(Box[1], 0.0, -1.0, 0.0, 200.0));
 		TestTrue(TEXT("Caixa: eixo Y do mundo vira X da malha"), Near4(Box[2], 1.0, 0.0, 0.0, 100.0));
-		TestTrue(TEXT("Caixa: eixo Z fica Z"), Near4(Box[3], 0.0, 0.0, 1.0, 25.0));
+		TestTrue(TEXT("Caixa: o corpo em cima, a saida e o Z, para cima"), Near4(Box[3], 0.0, 0.0, 1.0, 25.0));
+
+		// Corpo deitado longe do centro do chao, mas em cima dele: a saida continua sendo o topo
+		DeverauxBody::PackBox(MeshToWorld, FloorToWorld, FloorHalf, FVector(250.0, 0.0, 30.0), Box);
+		TestTrue(TEXT("Caixa: corpo em cima, perto da borda, a saida ainda e o Z"), Near4(Box[3], 0.0, 0.0, 1.0, 25.0));
+
+		// Corpo ao lado, alem da face -Y do mundo: a saida vira essa face, apontando para ele
+		DeverauxBody::PackBox(MeshToWorld, FloorToWorld, FloorHalf, FVector(100.0, -150.0, -25.0), Box);
+		TestTrue(TEXT("Caixa: corpo do lado -Y, a saida e -Y do mundo (-X da malha)"), Near4(Box[3], -1.0, 0.0, 0.0, 100.0));
+		TestTrue(TEXT("Caixa: os outros dois eixos seguem a ordem (Z e X do mundo)"), Near4(Box[1], 0.0, 0.0, 1.0, 25.0) && Near4(Box[2], 0.0, -1.0, 0.0, 200.0));
+
+		// Corpo embaixo da caixa (um teto): a saida e para baixo
+		DeverauxBody::PackBox(MeshToWorld, FloorToWorld, FloorHalf, FVector(100.0, 0.0, -200.0), Box);
+		TestTrue(TEXT("Caixa: corpo embaixo, a saida e -Z"), Near4(Box[3], 0.0, 0.0, -1.0, 25.0));
+
+		// Empate entre o lado e o topo (corpo na diagonal da quina): fica o topo, a saida do chao e do assento
+		DeverauxBody::PackBox(FTransform::Identity, FTransform::Identity, FVector(10.0, 10.0, 10.0), FVector(15.0, 0.0, 15.0), Box);
+		TestTrue(TEXT("Caixa: no empate, a saida e o Z"), Near4(Box[3], 0.0, 0.0, 1.0, 10.0));
+
+		// Centro do corpo dentro da caixa: a face mais perto dele (aqui, a de cima, a mais fina)
+		DeverauxBody::PackBox(MeshToWorld, FloorToWorld, FloorHalf, FVector(100.0, 0.0, -20.0), Box);
+		TestTrue(TEXT("Caixa: corpo dentro, a face mais perto"), Near4(Box[3], 0.0, 0.0, 1.0, 25.0));
+
+		// Caixa girada: o eixo de saida acompanha o giro dela
+		const FQuat Tilt = FRotator(0.0, 0.0, 90.0).Quaternion();
+		DeverauxBody::PackBox(FTransform::Identity, FTransform(Tilt, FVector::ZeroVector), FVector(10.0, 20.0, 30.0), Tilt.GetAxisZ() * 100.0, Box);
+		TestTrue(TEXT("Caixa girada: a saida e o Z dela"), Near4(Box[3], Tilt.GetAxisZ().X, Tilt.GetAxisZ().Y, Tilt.GetAxisZ().Z, 30.0));
 	}
 
 	return true;

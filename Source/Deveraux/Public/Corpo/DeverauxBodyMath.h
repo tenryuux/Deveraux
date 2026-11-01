@@ -33,7 +33,10 @@ namespace DeverauxBody
 
 	/**
 	 * Uma caixa de contato no espaco da malha, em quatro vetores: o centro (W = 1: caixa ligada) e os tres eixos da
-	 * caixa, cada um unitario em XYZ e com a meia largura naquele eixo em W.
+	 * caixa, cada um unitario em XYZ e com a meia largura naquele eixo em W. O terceiro e o da face virada para o
+	 * corpo, apontando para ele: o eixo em que o centro do corpo fica mais para fora da caixa (o de cima, no chao e
+	 * no assento). O kernel tira a carne por essa face ou pelos lados, nunca pela de tras.
 	 */
-	DEVERAUX_API void PackBox(const FTransform& MeshToWorld, const FTransform& BoxToWorld, const FVector& HalfExtentWorld, FVector4 OutBox[4]);
+	DEVERAUX_API void PackBox(const FTransform& MeshToWorld, const FTransform& BoxToWorld, const FVector& HalfExtentWorld,
+		const FVector& BodyCenterWorld, FVector4 OutBox[4]);
 }

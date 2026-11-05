@@ -59,7 +59,8 @@ public:
 
 	/**
 	 * As shape keys. O padrao e o do corpo de teste, com a malha olhando para +Y como o manequim da Unreal:
-	 * costas em -Y, frente em +Y, lado esquerdo em +X e direito em -X.
+	 * costas em -Y, frente em +Y, lado esquerdo em +X, direito em -X e cabeca em +Z (de ponta-cabeca). Em pe e a
+	 * escultura de base. Entre duas poses, o peso de cada uma e o quadrado do alinhamento, e os pesos somam 1.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Gravidade")
 	TArray<FDeverauxGravityMorph> Morphs;
@@ -100,6 +101,7 @@ private:
 	TWeakObjectPtr<USkeletalMeshComponent> Mesh;
 	TWeakObjectPtr<const USkeletalMesh> CachedAsset;
 	TArray<FName> MissingMorphTargets;
+	TArray<float> TargetWeights;
 	TArray<float> Weights;
 	FVector LastGravity = FVector(0.0, 0.0, -1.0);
 	FQuat BoneRefRotation = FQuat::Identity;

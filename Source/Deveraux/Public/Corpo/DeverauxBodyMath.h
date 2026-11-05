@@ -14,8 +14,18 @@ namespace DeverauxBody
 	 */
 	DEVERAUX_API FVector GravityInRestFrame(const FQuat& ComponentRotation, const FQuat& BoneRotation, const FQuat& BoneRefRotation);
 
-	/** Peso de um morph de gravidade: 0 com a gravidade a 90 graus ou mais da direcao dele, 1 com ela em cima, suave no meio. */
+	/**
+	 * Peso de um morph de gravidade: o quadrado do alinhamento da gravidade com a direcao dele (1 com ela em cima,
+	 * 0,5 a 45 graus, 0 a 90 graus ou mais). Nas seis direcoes dos eixos, os pesos somam 1 junto com o da escultura
+	 * em pe: entre duas poses, o corpo fica numa mistura das duas esculturas, sem somar uma em cima da outra.
+	 */
 	DEVERAUX_API float GravityMorphWeight(const FVector& Gravity, const FVector& Direction);
+
+	/**
+	 * Os pesos de todos os morphs juntos nunca passam de 1: se passarem (direcoes que se sobrepoem), todos diminuem
+	 * na mesma proporcao. Cada escultura ja tem a pose inteira; somar mais que 1 exagera a carne.
+	 */
+	DEVERAUX_API void LimitMorphWeights(TArray<float>& Weights);
 
 	/** Anda de Current para Target sem passar do ponto: em ResponseSeconds cobre 63% do caminho. 0 ou menos: chega na hora. */
 	DEVERAUX_API float SmoothTowards(float Current, float Target, float DeltaSeconds, float ResponseSeconds);

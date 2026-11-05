@@ -27,8 +27,24 @@ float DeverauxBody::GravityMorphWeight(const FVector& Gravity, const FVector& Di
 	{
 		return 0.0f;
 	}
-	const float Alignment = static_cast<float>(FVector::DotProduct(Gravity.GetSafeNormal(), Unit));
-	return FMath::SmoothStep(0.0f, 1.0f, Alignment);
+	const float Alignment = FMath::Max(static_cast<float>(FVector::DotProduct(Gravity.GetSafeNormal(), Unit)), 0.0f);
+	return Alignment * Alignment;
+}
+
+void DeverauxBody::LimitMorphWeights(TArray<float>& Weights)
+{
+	float Total = 0.0f;
+	for (const float Weight : Weights)
+	{
+		Total += FMath::Max(Weight, 0.0f);
+	}
+	if (Total > 1.0f)
+	{
+		for (float& Weight : Weights)
+		{
+			Weight /= Total;
+		}
+	}
 }
 
 float DeverauxBody::SmoothTowards(float Current, float Target, float DeltaSeconds, float ResponseSeconds)

@@ -23,6 +23,7 @@ UDeverauxGravityMorphComponent::UDeverauxGravityMorphComponent()
 	Morphs.Add(FDeverauxGravityMorph::Make(TEXT("GravFrente"), FVector(0.0, 1.0, 0.0)));
 	Morphs.Add(FDeverauxGravityMorph::Make(TEXT("GravLadoE"), FVector(1.0, 0.0, 0.0)));
 	Morphs.Add(FDeverauxGravityMorph::Make(TEXT("GravLadoD"), FVector(-1.0, 0.0, 0.0)));
+	Morphs.Add(FDeverauxGravityMorph::Make(TEXT("GravCabeca"), FVector(0.0, 0.0, 1.0)));
 }
 
 void UDeverauxGravityMorphComponent::BeginPlay()
@@ -55,11 +56,20 @@ void UDeverauxGravityMorphComponent::TickComponent(float DeltaTime, ELevelTick T
 	}
 
 	LastGravity = DeverauxBody::GravityInRestFrame(MeshComponent->GetComponentQuat(), Transforms[BoneIndex].GetRotation(), BoneRefRotation);
+
+	// Quanto de cada escultura, pela gravidade de agora; somados, nunca mais que a pose inteira
+	TargetWeights.SetNum(Morphs.Num());
+	for (int32 Index = 0; Index < Morphs.Num(); ++Index)
+	{
+		TargetWeights[Index] = DeverauxBody::GravityMorphWeight(LastGravity, Morphs[Index].Direction);
+	}
+	DeverauxBody::LimitMorphWeights(TargetWeights);
+
 	Weights.SetNum(Morphs.Num());
 	for (int32 Index = 0; Index < Morphs.Num(); ++Index)
 	{
 		const FDeverauxGravityMorph& Morph = Morphs[Index];
-		const float Target = DeverauxBody::GravityMorphWeight(LastGravity, Morph.Direction) * Morph.MaxWeight;
+		const float Target = TargetWeights[Index] * Morph.MaxWeight;
 
 		// No primeiro quadro, ja no peso certo: a personagem pode nascer deitada
 		Weights[Index] = bHasWeights ? DeverauxBody::SmoothTowards(Weights[Index], Target, DeltaTime, ResponseSeconds) : Target;

@@ -54,8 +54,47 @@ bool FDeverauxBodyMathTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Gravidade a 90 graus: peso 0"), FMath::IsNearlyEqual(DeverauxBody::GravityMorphWeight(FVector(0.0, 0.0, -1.0), FVector(0.0, -1.0, 0.0)), 0.0f, 1.0e-4f));
 		TestTrue(TEXT("Gravidade do lado oposto: peso 0"), FMath::IsNearlyEqual(DeverauxBody::GravityMorphWeight(FVector(0.0, 1.0, 0.0), FVector(0.0, -1.0, 0.0)), 0.0f, 1.0e-4f));
 		const FVector SixtyDegrees(0.0, -0.5, -FMath::Sqrt(0.75));
-		TestTrue(TEXT("Gravidade a 60 graus: peso 0,5, pela curva suave"), FMath::IsNearlyEqual(DeverauxBody::GravityMorphWeight(SixtyDegrees, FVector(0.0, -2.0, 0.0)), 0.5f, 1.0e-4f));
+		TestTrue(TEXT("Gravidade a 60 graus: peso 0,25, o quadrado do alinhamento"), FMath::IsNearlyEqual(DeverauxBody::GravityMorphWeight(SixtyDegrees, FVector(0.0, -2.0, 0.0)), 0.25f, 1.0e-4f));
+		const FVector FortyFive = FVector(0.0, -1.0, -1.0).GetSafeNormal();
+		TestTrue(TEXT("Gravidade a 45 graus: peso 0,5, metade de cada escultura"), FMath::IsNearlyEqual(DeverauxBody::GravityMorphWeight(FortyFive, FVector(0.0, -1.0, 0.0)), 0.5f, 1.0e-4f));
 		TestTrue(TEXT("Morph sem direcao: peso 0"), DeverauxBody::GravityMorphWeight(FVector(0.0, -1.0, 0.0), FVector::ZeroVector) == 0.0f);
+
+		// Nas seis direcoes dos eixos (a de baixo e a escultura em pe), os pesos somam 1 em qualquer inclinacao
+		const FVector Tilted = FVector(0.3, -0.5, 0.8).GetSafeNormal();
+		const FVector Axes[6] = { FVector(1.0, 0.0, 0.0), FVector(-1.0, 0.0, 0.0), FVector(0.0, 1.0, 0.0), FVector(0.0, -1.0, 0.0), FVector(0.0, 0.0, 1.0), FVector(0.0, 0.0, -1.0) };
+		float Sum = 0.0f;
+		for (const FVector& Axis : Axes)
+		{
+			Sum += DeverauxBody::GravityMorphWeight(Tilted, Axis);
+		}
+		TestTrue(TEXT("Seis direcoes: os pesos somam 1"), FMath::IsNearlyEqual(Sum, 1.0f, 1.0e-4f));
+
+		// Pesos somados acima de 1 (direcoes que se sobrepoem) caem na mesma proporcao; abaixo de 1 ficam como estao
+		TArray<float> Over;
+		Over.Add(0.75f);
+		Over.Add(0.75f);
+		DeverauxBody::LimitMorphWeights(Over);
+		TestTrue(TEXT("Pesos somando 1,5: viram 0,5 e 0,5"), FMath::IsNearlyEqual(Over[0], 0.5f, 1.0e-4f) && FMath::IsNearlyEqual(Over[1], 0.5f, 1.0e-4f));
+		TArray<float> Under;
+		Under.Add(0.2f);
+		Under.Add(0.3f);
+		DeverauxBody::LimitMorphWeights(Under);
+		TestTrue(TEXT("Pesos somando 0,5: ficam"), FMath::IsNearlyEqual(Under[0], 0.2f, 1.0e-6f) && FMath::IsNearlyEqual(Under[1], 0.3f, 1.0e-6f));
+		TArray<float> Negative;
+		Negative.Add(1.0f);
+		Negative.Add(0.5f);
+		Negative.Add(-0.5f);
+		DeverauxBody::LimitMorphWeights(Negative);
+		TestTrue(TEXT("Peso negativo nao entra na soma"), FMath::IsNearlyEqual(Negative[0], 1.0f / 1.5f, 1.0e-4f) && FMath::IsNearlyEqual(Negative[1], 0.5f / 1.5f, 1.0e-4f));
+	}
+
+	// De ponta-cabeca: a gravidade puxa para a cabeca (+Z do corpo em pe)
+	{
+		const FQuat Ref = FRotator(10.0, 20.0, 30.0).Quaternion();
+		const FQuat UpsideDown(1.0, 0.0, 0.0, 0.0);
+		TestTrue(TEXT("De ponta-cabeca: a gravidade puxa para a cabeca"),
+			Near(DeverauxBody::GravityInRestFrame(FQuat::Identity, UpsideDown * Ref, Ref), FVector(0.0, 0.0, 1.0)));
+		TestTrue(TEXT("De ponta-cabeca: GravCabeca no maximo"), FMath::IsNearlyEqual(DeverauxBody::GravityMorphWeight(FVector(0.0, 0.0, 1.0), FVector(0.0, 0.0, 1.0)), 1.0f, 1.0e-4f));
 	}
 
 	// Suavizacao

@@ -206,7 +206,7 @@ namespace DeverauxContactPrivate
 		return true;
 	}
 
-	/** Uma capsula candidata a ir para o deformer. */
+	/** Uma capsula candidata a ir para o deformer; as do proprio corpo levam onde ficam na pose de referencia. */
 	struct FCandidate
 	{
 		FVector A;
@@ -214,6 +214,9 @@ namespace DeverauxContactPrivate
 		float Radius = 0.0f;
 		int32 Bits = 0;
 		double Score = 0.0;
+		bool bHasRest = false;
+		FVector RestA;
+		FVector RestB;
 	};
 }
 
@@ -247,11 +250,16 @@ UDeverauxContactComponent::UDeverauxContactComponent()
 	BodyRules.Add(FDeverauxBodyContactRule::Make(TEXT("foot"), true, true, true, true));
 	BodyRules.Add(FDeverauxBodyContactRule::Make(TEXT("ball"), true, true, true, true));
 	BodyRules.Add(FDeverauxBodyContactRule::Make(TEXT("thigh"), true, false, false, false));
+	// O tronco embaixo dos seios: um seio grande caindo na barriga para nela
+	BodyRules.Add(FDeverauxBodyContactRule::Make(TEXT("spine_02"), true, false, false, false));
+	BodyRules.Add(FDeverauxBodyContactRule::Make(TEXT("spine_03"), true, false, false, false));
 
 	for (int32 Mass = 0; Mass < DeverauxBody::ContactRegion::NumMasses; ++Mass)
 	{
 		MassBones[Mass][0] = INDEX_NONE;
 		MassBones[Mass][1] = INDEX_NONE;
+		RestMassA[Mass] = FVector::ZeroVector;
+		RestMassB[Mass] = FVector::ZeroVector;
 		Compression[Mass] = 0.0f;
 	}
 	for (int32 Pair = 0; Pair < DeverauxBody::ContactRegion::NumPairs; ++Pair)
@@ -324,8 +332,8 @@ void UDeverauxContactComponent::RefreshContacts()
 	}
 	if (Current && Current->GetSkeletalMeshAsset() == CachedAsset.Get())
 	{
-		// O Physics Asset pode ter mudado com o jogo rodando. Os avisos ja sairam quando a malha chegou
-		BuildBodyCapsules(*Current, false);
+		// O Physics Asset pode ter mudado com o jogo rodando
+		BuildBodyCapsules(*Current);
 	}
 
 	TArray<AActor*> Actors;
@@ -469,6 +477,8 @@ void UDeverauxContactComponent::CacheMesh(const USkeletalMeshComponent& MeshComp
 		}
 		RestA[Mass] = bRest[Mass] ? FAnimationRuntime::GetComponentSpaceTransformRefPose(Asset->GetRefSkeleton(), MassBones[Mass][0]).GetLocation() : FVector::ZeroVector;
 		RestB[Mass] = bRest[Mass] ? FAnimationRuntime::GetComponentSpaceTransformRefPose(Asset->GetRefSkeleton(), MassBones[Mass][1]).GetLocation() : FVector::ZeroVector;
+		RestMassA[Mass] = RestA[Mass];
+		RestMassB[Mass] = RestB[Mass];
 	}
 
 	// O lado esquerdo do corpo, pelo X das massas esquerdas na pose de referencia (no manequim da Unreal, +X)
@@ -510,19 +520,17 @@ void UDeverauxContactComponent::CacheMesh(const USkeletalMeshComponent& MeshComp
 		RestPairOverlaps[Pair] = FMath::Max(Overlap, 0.0f);
 	}
 
-	BuildBodyCapsules(MeshComponent, true);
+	BuildBodyCapsules(MeshComponent);
 	bHasSqueeze = false;
 }
 
-void UDeverauxContactComponent::BuildBodyCapsules(const USkeletalMeshComponent& MeshComponent, bool bWarn)
+void UDeverauxContactComponent::BuildBodyCapsules(const USkeletalMeshComponent& MeshComponent)
 {
-	using namespace DeverauxBody;
-
 	BodyCapsules.Reset();
 	DeverauxContactPrivate::AddPhysicsCapsules(MeshComponent, &BodyRules, BodyCapsules);
 
-	// Um osso que ja entra fundo numa massa na pose de referencia achataria a carne parada: ele nao empurra essa
-	// massa (a panturrilha e a coxa do mesmo lado, que se tocam no joelho), so as outras
+	// Onde cada capsula fica na pose de referencia: a carne que ja encosta nela parada (o seio no braco, a coxa na
+	// panturrilha, no joelho) fica onde esta, e so o que entra alem disso sai
 	const USkeletalMesh* Asset = MeshComponent.GetSkeletalMeshAsset();
 	if (!Asset)
 	{
@@ -531,27 +539,9 @@ void UDeverauxContactComponent::BuildBodyCapsules(const USkeletalMeshComponent& 
 	for (FDeverauxBoneCapsule& Capsule : BodyCapsules)
 	{
 		const FTransform BoneRest = FAnimationRuntime::GetComponentSpaceTransformRefPose(Asset->GetRefSkeleton(), Capsule.BoneIndex);
-		const FVector A = BoneRest.TransformPosition(Capsule.LocalA);
-		const FVector B = BoneRest.TransformPosition(Capsule.LocalB);
-		for (int32 Mass = 0; Mass < ContactRegion::NumMasses; ++Mass)
-		{
-			const FDeverauxContactMass& Config = GetMass(Mass);
-			if (MassBones[Mass][0] == INDEX_NONE || MassBones[Mass][1] == INDEX_NONE || (Capsule.MassBits & ContactRegion::MassBit(Mass)) == 0)
-			{
-				continue;
-			}
-			const FVector MassA = FAnimationRuntime::GetComponentSpaceTransformRefPose(Asset->GetRefSkeleton(), MassBones[Mass][0]).GetLocation();
-			const FVector MassB = FAnimationRuntime::GetComponentSpaceTransformRefPose(Asset->GetRefSkeleton(), MassBones[Mass][1]).GetLocation();
-			if (MassDepthInCapsule(MassA, MassB, Config.Radius, A, B, Capsule.Radius) > Config.Radius * 0.5f)
-			{
-				Capsule.MassBits &= ~ContactRegion::MassBit(Mass);
-				if (bWarn)
-				{
-					UE_LOG(LogDeverauxContato, Log, TEXT("%s: o corpo do osso %s ja entra na massa %s na pose de referencia, entao nao empurra essa massa. Se devia empurrar, diminua o corpo no Physics Asset ou o raio da massa."),
-						*GetNameSafe(GetOwner()), *Capsule.BoneName.ToString(), *GetMassName(Mass));
-				}
-			}
-		}
+		Capsule.RestA = BoneRest.TransformPosition(Capsule.LocalA);
+		Capsule.RestB = BoneRest.TransformPosition(Capsule.LocalB);
+		Capsule.bHasRest = true;
 	}
 }
 
@@ -602,9 +592,10 @@ void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshCo
 	}
 
 	// Capsulas candidatas, no espaco da malha, pela distancia ate a massa mais perto entre as que ela empurra (a coxa,
-	// que so empurra os seios, conta pela distancia ate eles); sem nenhuma dessas, pela distancia ate o centro do corpo
+	// que so empurra os seios, conta pela distancia ate eles); sem nenhuma dessas, pela distancia ate o centro do corpo.
+	// As do proprio corpo contam alem do que ja encostavam paradas: o braco parado junto do seio nao toma a vez do parceiro
 	TArray<FCandidate> Candidates;
-	const auto Consider = [&](const FVector& A, const FVector& B, float Radius, int32 Bits)
+	const auto Consider = [&](const FVector& A, const FVector& B, float Radius, int32 Bits, const FDeverauxBoneCapsule* Own)
 	{
 		double Score = UE_BIG_NUMBER;
 		bool bAnyMass = false;
@@ -615,7 +606,12 @@ void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshCo
 				FVector OnMass;
 				FVector OnCapsule;
 				ClosestPointsBetweenSegments(MassA[Mass], MassB[Mass], A, B, OnMass, OnCapsule);
-				Score = FMath::Min(Score, (OnCapsule - OnMass).Size() - Radius - MassRadius[Mass]);
+				double Gap = (OnCapsule - OnMass).Size() - Radius - MassRadius[Mass];
+				if (Own && Own->bHasRest)
+				{
+					Gap += MassDepthInCapsule(RestMassA[Mass], RestMassB[Mass], MassRadius[Mass], Own->RestA, Own->RestB, Radius);
+				}
+				Score = FMath::Min(Score, Gap);
 				bAnyMass = true;
 			}
 		}
@@ -631,6 +627,9 @@ void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshCo
 			Candidate.Radius = Radius;
 			Candidate.Bits = Bits;
 			Candidate.Score = Score;
+			Candidate.bHasRest = Own && Own->bHasRest;
+			Candidate.RestA = Candidate.bHasRest ? Own->RestA : FVector::ZeroVector;
+			Candidate.RestB = Candidate.bHasRest ? Own->RestB : FVector::ZeroVector;
 		}
 	};
 	FVector A;
@@ -640,14 +639,14 @@ void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshCo
 	{
 		if (CapsuleInMesh(Capsule, MeshToWorld, MeshScale, A, B, Radius))
 		{
-			Consider(A, B, Radius, Capsule.MassBits);
+			Consider(A, B, Radius, Capsule.MassBits, &Capsule);
 		}
 	}
 	for (const FDeverauxBoneCapsule& Capsule : OtherBodyCapsules)
 	{
 		if (CapsuleInMesh(Capsule, MeshToWorld, MeshScale, A, B, Radius))
 		{
-			Consider(A, B, Radius, Capsule.MassBits);
+			Consider(A, B, Radius, Capsule.MassBits, nullptr);
 		}
 	}
 	for (const TWeakObjectPtr<USphereComponent>& Weak : Spheres)
@@ -655,7 +654,7 @@ void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshCo
 		if (const USphereComponent* Sphere = Weak.Get())
 		{
 			const FVector Center = MeshToWorld.InverseTransformPosition(Sphere->GetComponentLocation());
-			Consider(Center, Center, static_cast<float>(Sphere->GetScaledSphereRadius() / MeshScale), ContactRegion::AllBits);
+			Consider(Center, Center, static_cast<float>(Sphere->GetScaledSphereRadius() / MeshScale), ContactRegion::AllBits, nullptr);
 		}
 	}
 	for (const TWeakObjectPtr<UCapsuleComponent>& Weak : Capsules)
@@ -667,7 +666,7 @@ void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshCo
 			const FVector Axis = Capsule->GetComponentQuat().GetAxisZ() * FMath::Max(Capsule->GetScaledCapsuleHalfHeight() - CapsuleRadius, 0.0f);
 			const FVector Center = Capsule->GetComponentLocation();
 			Consider(MeshToWorld.InverseTransformPosition(Center + Axis), MeshToWorld.InverseTransformPosition(Center - Axis),
-				static_cast<float>(CapsuleRadius / MeshScale), ContactRegion::AllBits);
+				static_cast<float>(CapsuleRadius / MeshScale), ContactRegion::AllBits, nullptr);
 		}
 	}
 	Candidates.Sort([](const FCandidate& Left, const FCandidate& Right) { return Left.Score < Right.Score; });
@@ -677,6 +676,11 @@ void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshCo
 		const FCandidate& Candidate = Candidates[Index];
 		LastValues[ContactLayout::Capsules + Index * 2] = FVector4(Candidate.A, Candidate.Radius);
 		LastValues[ContactLayout::Capsules + Index * 2 + 1] = FVector4(Candidate.B, Candidate.Bits);
+		if (Candidate.bHasRest)
+		{
+			LastValues[ContactLayout::CapsuleRests + Index * 2] = FVector4(Candidate.RestA, 1.0);
+			LastValues[ContactLayout::CapsuleRests + Index * 2 + 1] = FVector4(Candidate.RestB, 0.0);
+		}
 	}
 
 	// Caixas: as mais perto do centro do corpo
@@ -706,13 +710,12 @@ void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshCo
 		}
 	}
 
-	// Chao embaixo de cada massa e do resto da carne: o que for World Static ou Dynamic, olhando para cima
+	// Chao embaixo de cada massa e do resto da carne: o que bloqueia o canal (no padrao, Visibility), olhando para cima.
+	// Gatilhos so sobrepoem o canal e ficam de fora: um Trigger Box em volta do corpo viraria um chao em cima da carne
 	FloorsFound = 0;
 	UWorld* World = GetWorld();
 	if (bFindFloor && World)
 	{
-		FCollisionObjectQueryParams Objects(ECC_WorldStatic);
-		Objects.AddObjectTypesToQuery(ECC_WorldDynamic);
 		// Os atores com a tag ficam de fora: uma mao ou um objeto embaixo da massa viraria um chao sem fim
 		FCollisionQueryParams Params(SCENE_QUERY_STAT(DeverauxContatoChao), false, GetOwner());
 		for (const TWeakObjectPtr<const AActor>& Tagged : TaggedActors)
@@ -733,8 +736,9 @@ void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshCo
 			const FVector Center = MeshToWorld.TransformPosition(bMass ? (MassA[Floor] + MassB[Floor]) * 0.5 : BodyCenter);
 			const FVector Start = Center + FVector(0.0, 0.0, (bMass ? MassRadius[Floor] * MeshScale : 0.0) + 5.0);
 			const FVector End = Center - FVector(0.0, 0.0, FloorSearchDistance);
+			// Comecando dentro de algo, nao ha chao embaixo para achar: a massa fica sem chao, e nao com um em cima dela
 			FHitResult Hit;
-			if (World->LineTraceSingleByObjectType(Hit, Start, End, Objects, Params) && Hit.ImpactNormal.Z > 0.2)
+			if (World->LineTraceSingleByChannel(Hit, Start, End, FloorChannel, Params) && !Hit.bStartPenetrating && Hit.ImpactNormal.Z > 0.2)
 			{
 				const FVector Normal = MeshToWorld.InverseTransformVectorNoScale(Hit.ImpactNormal).GetSafeNormal();
 				LastValues[ContactLayout::Floors + Floor] = FVector4(Normal, FVector::DotProduct(Normal, MeshToWorld.InverseTransformPosition(Hit.ImpactPoint)));
@@ -755,10 +759,16 @@ void UDeverauxContactComponent::BuildValues(const USkeletalMeshComponent& MeshCo
 		const int32 Bit = ContactRegion::MassBit(Mass);
 		for (int32 Index = 0; Index < NumCapsules; ++Index)
 		{
-			if ((Candidates[Index].Bits & Bit) != 0)
+			const FCandidate& Candidate = Candidates[Index];
+			if ((Candidate.Bits & Bit) != 0)
 			{
-				Depth = FMath::Max(Depth, MassDepthInCapsule(MassA[Mass], MassB[Mass], MassRadius[Mass], Candidates[Index].A, Candidates[Index].B,
-					Candidates[Index].Radius));
+				// Do proprio corpo: so o que entra alem do que ja encostava parado
+				float CapsuleDepth = MassDepthInCapsule(MassA[Mass], MassB[Mass], MassRadius[Mass], Candidate.A, Candidate.B, Candidate.Radius);
+				if (Candidate.bHasRest)
+				{
+					CapsuleDepth -= MassDepthInCapsule(RestMassA[Mass], RestMassB[Mass], MassRadius[Mass], Candidate.RestA, Candidate.RestB, Candidate.Radius);
+				}
+				Depth = FMath::Max(Depth, CapsuleDepth);
 			}
 		}
 		for (int32 Index = 0; Index < NumBoxes; ++Index)

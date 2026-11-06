@@ -136,7 +136,7 @@ namespace DeverauxBody
 
 	/**
 	 * Tira um ponto com raio (um osso dentro da massa) de dentro do que esta no array Contatos, como o kernel faz com a
-	 * carne: as capsulas que empurram a regiao da massa, as caixas, o chao da massa e o plano do par, duas voltas.
+	 * carne: as capsulas que empurram a massa, as caixas, o chao da massa e o plano do par, duas voltas.
 	 * Mass: 0 a 5 (par * 2 + lado). Array menor que ContactLayout::Num ou massa fora da faixa: o ponto volta igual.
 	 */
 	DEVERAUX_API FVector ResolveContactPoint(const TArray<FVector4>& Values, const FVector& Point, int32 Mass, float Radius);

@@ -17,19 +17,21 @@ namespace AnimNodeDeverauxContactBonesPrivate
 
 FAnimNode_DeverauxContactBones::FAnimNode_DeverauxContactBones()
 {
-	// As cadeias do corpo de teste, como no passo de ossos do Blender
-	const auto AddChain = [this](const TCHAR* Root, const TCHAR* Tip, EDeverauxContactMass Mass)
+	// As cadeias do corpo de teste, como no passo de ossos do Blender: a ponta do seio fica no meio dele, a uns 5 cm da
+	// pele; a do gluteo, na parte mais saliente, perto da pele
+	const auto AddChain = [this](const TCHAR* Root, const TCHAR* Tip, EDeverauxContactMass Mass, float Radius)
 	{
 		FDeverauxContactBoneChain Chain;
 		Chain.RootBone.BoneName = FName(Root);
 		Chain.TipBone.BoneName = FName(Tip);
 		Chain.Mass = Mass;
+		Chain.Radius = Radius;
 		Chains.Add(Chain);
 	};
-	AddChain(TEXT("jig_seio_l"), TEXT("jig_seio_01_l"), EDeverauxContactMass::BreastLeft);
-	AddChain(TEXT("jig_seio_r"), TEXT("jig_seio_01_r"), EDeverauxContactMass::BreastRight);
-	AddChain(TEXT("jig_gluteo_l"), TEXT("jig_gluteo_01_l"), EDeverauxContactMass::GluteLeft);
-	AddChain(TEXT("jig_gluteo_r"), TEXT("jig_gluteo_01_r"), EDeverauxContactMass::GluteRight);
+	AddChain(TEXT("jig_seio_l"), TEXT("jig_seio_01_l"), EDeverauxContactMass::BreastLeft, 5.0f);
+	AddChain(TEXT("jig_seio_r"), TEXT("jig_seio_01_r"), EDeverauxContactMass::BreastRight, 5.0f);
+	AddChain(TEXT("jig_gluteo_l"), TEXT("jig_gluteo_01_l"), EDeverauxContactMass::GluteLeft, 2.0f);
+	AddChain(TEXT("jig_gluteo_r"), TEXT("jig_gluteo_01_r"), EDeverauxContactMass::GluteRight, 2.0f);
 }
 
 void FAnimNode_DeverauxContactBones::Initialize_AnyThread(const FAnimationInitializeContext& Context)

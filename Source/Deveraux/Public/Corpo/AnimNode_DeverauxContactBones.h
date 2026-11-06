@@ -64,7 +64,10 @@ struct DEVERAUX_API FAnimNode_DeverauxContactBones : public FAnimNode_Base
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Settings, meta = (PinShownByDefault))
 	bool bEnabled = true;
 
-	/** Uma linha por cadeia de jiggle. O padrao e o do corpo de teste: as quatro cadeias jig_ de seios e gluteos. */
+	/**
+	 * Uma linha por cadeia de jiggle. O padrao e o do corpo de teste: as quatro cadeias jig_ de seios e gluteos, com
+	 * Radius 5 nos seios (a ponta no meio do seio) e 2 nos gluteos (a ponta na parte mais saliente).
+	 */
 	UPROPERTY(EditAnywhere, Category = Settings)
 	TArray<FDeverauxContactBoneChain> Chains;
 

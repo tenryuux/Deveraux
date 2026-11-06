@@ -1,9 +1,10 @@
 // Projeto Deveraux - kernel de contato do Deformer Graph (corpo)
 //
 // Mantem a carne macia fora do que ela encosta: um seio nao atravessa o outro, nem um gluteo o outro, nem uma coxa a
-// outra; nada entra nas capsulas (maos, bracos e pernas dela, o corpo do parceiro, objetos), nas caixas (assento) e no
-// chao. Apertada, a carne achata contra o que encosta e a carne em volta estufa um pouco. Tudo chega a cada quadro no
-// array Contatos, do componente UDeverauxContactComponent, no espaco da malha; o lugar de cada coisa no array esta em
+// outra; nada entra nas capsulas (maos, bracos, pernas e tronco dela, o corpo do parceiro, objetos), nas caixas (assento)
+// e no chao. Nas capsulas do proprio corpo, a carne que ja encosta nelas na pose de referencia fica onde esta.
+// Apertada, a carne achata contra o que encosta e a carne em volta estufa um pouco. Tudo chega a cada quadro no array
+// Contatos, do componente UDeverauxContactComponent, no espaco da malha; o lugar de cada coisa no array esta em
 // DeverauxBodyMath.h (DeverauxBody::ContactLayout). Este texto vai inteiro no Shader Text do kernel.
 //
 // Kernel: Custom Compute Kernel no Update Graph, com Execution Domain = Vertex.
@@ -45,6 +46,7 @@ if (Mascara > 0.0f)
 	const uint Chaos = 19u;
 	const uint Capsulas = 26u;
 	const uint Caixas = 58u;
+	const uint Repousos = 66u;
 
 	const float4 Cabecalho = CONTATO(0u);
 	const float4 Ajustes = CONTATO(1u);
@@ -83,9 +85,19 @@ if (Mascara > 0.0f)
 				const float4 B = CONTATO(Capsulas + C * 2u + 1u);
 				if (A.w > 0.0f && ((uint)(B.w + 0.5f) & BitMassa) != 0u)
 				{
+					// Capsula do proprio corpo: a carne pode ficar tao dentro quanto ja estava na pose de referencia
+					float Alcance = A.w;
+					const float4 RA = CONTATO(Repousos + C * 2u);
+					if (RA.w > 0.0f)
+					{
+						const float4 RB = CONTATO(Repousos + C * 2u + 1u);
+						const float3 EixoParado = RB.xyz - RA.xyz;
+						const float TParado = saturate(dot(Repouso - RA.xyz, EixoParado) / max(dot(EixoParado, EixoParado), 0.000001f));
+						Alcance -= max(A.w - length(Repouso - (RA.xyz + EixoParado * TParado)), 0.0f);
+					}
 					const float3 Eixo = B.xyz - A.xyz;
 					const float T = saturate(dot(P - A.xyz, Eixo) / max(dot(Eixo, Eixo), 0.000001f));
-					Perto = min(Perto, length(P - (A.xyz + Eixo * T)) - A.w);
+					Perto = min(Perto, length(P - (A.xyz + Eixo * T)) - Alcance);
 				}
 			}
 			[loop]
@@ -144,14 +156,24 @@ if (Mascara > 0.0f)
 			const float4 B = CONTATO(Capsulas + C * 2u + 1u);
 			if (A.w > 0.0f && ((uint)(B.w + 0.5f) & BitMassa) != 0u)
 			{
+				// Capsula do proprio corpo: so sai o que entra alem do que ja entrava na pose de referencia
+				float Alcance = A.w;
+				const float4 RA = CONTATO(Repousos + C * 2u);
+				if (RA.w > 0.0f)
+				{
+					const float4 RB = CONTATO(Repousos + C * 2u + 1u);
+					const float3 EixoParado = RB.xyz - RA.xyz;
+					const float TParado = saturate(dot(Repouso - RA.xyz, EixoParado) / max(dot(EixoParado, EixoParado), 0.000001f));
+					Alcance -= max(A.w - length(Repouso - (RA.xyz + EixoParado * TParado)), 0.0f);
+				}
 				const float3 Eixo = B.xyz - A.xyz;
 				const float T = saturate(dot(P - A.xyz, Eixo) / max(dot(Eixo, Eixo), 0.000001f));
 				const float3 NoEixo = A.xyz + Eixo * T;
 				const float3 Fora = P - NoEixo;
 				const float Distancia = length(Fora);
-				if (Distancia < A.w && Distancia > 0.0001f)
+				if (Distancia < Alcance && Distancia > 0.0001f)
 				{
-					P = NoEixo + Fora * (A.w / Distancia);
+					P = NoEixo + Fora * (Alcance / Distancia);
 				}
 			}
 		}

@@ -47,10 +47,22 @@ void FAnimNode_DeverauxContactBones::CacheBones_AnyThread(const FAnimationCacheB
 	Source.CacheBones(Context);
 
 	const FBoneContainer& RequiredBones = Context.AnimInstanceProxy->GetRequiredBones();
+	RestTips.Reset();
 	for (FDeverauxContactBoneChain& Chain : Chains)
 	{
 		Chain.RootBone.Initialize(RequiredBones);
 		Chain.TipBone.Initialize(RequiredBones);
+
+		// A ponta na pose de referencia: a pose de referencia de cada osso, do da ponta ate a raiz do esqueleto
+		FTransform RestTip = FTransform::Identity;
+		if (Chain.TipBone.IsValidToEvaluate(RequiredBones))
+		{
+			for (FCompactPoseBoneIndex Bone = Chain.TipBone.GetCompactPoseIndex(RequiredBones); Bone.IsValid(); Bone = RequiredBones.GetParentBoneIndex(Bone))
+			{
+				RestTip = RestTip * RequiredBones.GetRefPoseTransform(Bone);
+			}
+		}
+		RestTips.Add(RestTip.GetLocation());
 	}
 }
 
@@ -88,8 +100,9 @@ void FAnimNode_DeverauxContactBones::Evaluate_AnyThread(FPoseContext& Output)
 	FCSPose<FCompactPose> ComponentSpace;
 	bool bStale = true;
 	const FBoneContainer& Bones = Output.Pose.GetBoneContainer();
-	for (const FDeverauxContactBoneChain& Chain : Chains)
+	for (int32 ChainIndex = 0; ChainIndex < Chains.Num(); ++ChainIndex)
 	{
+		const FDeverauxContactBoneChain& Chain = Chains[ChainIndex];
 		if (!Chain.RootBone.IsValidToEvaluate(Bones) || !Chain.TipBone.IsValidToEvaluate(Bones))
 		{
 			continue;
@@ -111,6 +124,7 @@ void FAnimNode_DeverauxContactBones::Evaluate_AnyThread(FPoseContext& Output)
 		{
 			continue;
 		}
+		const FVector RestTip = RestTips.IsValidIndex(ChainIndex) ? RestTips[ChainIndex] : StartTip;
 
 		// A ponta gira em volta da raiz e vai para onde as contas a deixam; algumas voltas, porque girar pode levar a
 		// ponta para dentro de outra coisa (ou deixar perto da superficie, quando ela nao pode esticar)
@@ -120,7 +134,7 @@ void FAnimNode_DeverauxContactBones::Evaluate_AnyThread(FPoseContext& Output)
 		bool bPushed = false;
 		for (int32 Pass = 0; Pass < AnimNodeDeverauxContactBonesPrivate::NumPasses; ++Pass)
 		{
-			const FVector Resolved = DeverauxBody::ResolveContactPoint(Values, Tip, static_cast<int32>(Chain.Mass), Chain.Radius);
+			const FVector Resolved = DeverauxBody::ResolveContactPoint(Values, Tip, RestTip, static_cast<int32>(Chain.Mass), Chain.Radius);
 			const FVector OldDirection = (Tip - Root).GetSafeNormal();
 			const FVector NewDirection = (Resolved - Root).GetSafeNormal();
 			if ((Resolved - Tip).SizeSquared() < 1.0e-4 || OldDirection.IsZero() || NewDirection.IsZero())

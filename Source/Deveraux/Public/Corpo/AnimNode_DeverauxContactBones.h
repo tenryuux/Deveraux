@@ -91,6 +91,8 @@ struct DEVERAUX_API FAnimNode_DeverauxContactBones : public FAnimNode_Base
 private:
 	/** Copia do array do componente, feita no game thread. */
 	TArray<FVector4> Values;
+	/** A ponta de cada cadeia na pose de referencia, no espaco da malha (as capsulas do corpo deixam o que ela ja encostava). */
+	TArray<FVector> RestTips;
 	int32 LastPushed = 0;
 	bool bHasComponent = false;
 };

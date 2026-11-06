@@ -4,6 +4,7 @@
 
 #include "Components/ActorComponent.h"
 #include "CoreMinimal.h"
+#include "Engine/EngineTypes.h"
 
 #include "DeverauxContactComponent.generated.h"
 
@@ -124,14 +125,19 @@ struct FDeverauxBoneCapsule
 	float Radius = 0.0f;
 	/** As massas que a capsula empurra (DeverauxBody::ContactRegion::MassBit). */
 	int32 MassBits = 0;
+	/** Do proprio corpo: as pontas na pose de referencia, no espaco da malha. A carne que ja entra nelas parada fica. */
+	bool bHasRest = false;
+	FVector RestA = FVector::ZeroVector;
+	FVector RestB = FVector::ZeroVector;
 };
 
 /**
  * Contato do corpo. A cada quadro junta tudo em que a carne macia encosta e manda ao Deformer Graph da malha numa
  * variavel so, Contatos (array de Vector 4, no layout de DeverauxBody::ContactLayout); o no Deveraux Contato dos Ossos le
  * o mesmo array. Entram: o plano entre as duas massas de cada par (seios, gluteos e coxas), os ossos do proprio corpo
- * pelas regras (bracos, maos, pernas, pelo Physics Asset), as formas dos atores com ContactTag (esferas, capsulas,
- * caixas e os corpos do Physics Asset das Skeletal Meshes deles, como o parceiro) e o chao embaixo de cada massa.
+ * pelas regras (bracos, maos, pernas e o tronco embaixo dos seios, pelo Physics Asset), as formas dos atores com
+ * ContactTag (esferas, capsulas, caixas e os corpos do Physics Asset das Skeletal Meshes deles, como o parceiro) e o chao
+ * embaixo de cada massa.
  * O kernel fica em Private/Corpo/ContatoKernel.hlsl. Vai no ator do personagem e usa a Skeletal Mesh dele que tem deformer.
  */
 UCLASS(ClassGroup = (Deveraux), meta = (BlueprintSpawnableComponent))
@@ -155,9 +161,9 @@ public:
 	FDeverauxContactPair Thighs;
 
 	/**
-	 * Ossos do proprio corpo que empurram a carne, pelos corpos do Physics Asset da malha. Um corpo que ja entra fundo
-	 * numa massa na pose de referencia (mais que metade do raio dela, como a panturrilha na coxa do mesmo lado) nao
-	 * empurra essa massa, com um aviso no log; as outras, sim.
+	 * Ossos do proprio corpo que empurram a carne, pelos corpos do Physics Asset da malha. A carne que ja encosta num
+	 * deles na pose de referencia (o seio no braco, a coxa na panturrilha, no joelho) fica onde esta; so o que entra alem
+	 * disso sai, como quando ela se ajoelha e a panturrilha aperta a coxa.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Contato|Corpo")
 	TArray<FDeverauxBodyContactRule> BodyRules;
@@ -178,11 +184,18 @@ public:
 	float RefreshSeconds = 1.0f;
 
 	/**
-	 * Procura, a cada quadro, o chao embaixo de cada massa (tambem assento e cama: o que for World Static ou Dynamic).
-	 * Os atores com ContactTag ficam de fora da procura: eles ja entram pelas formas.
+	 * Procura, a cada quadro, o chao embaixo de cada massa (tambem assento e cama). Os atores com ContactTag ficam de
+	 * fora da procura: eles ja entram pelas formas.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Contato|Chao")
 	bool bFindFloor = true;
+
+	/**
+	 * Canal da procura do chao: conta o que bloqueia este canal. No padrao, Visibility: o chao, os moveis e as paredes;
+	 * gatilhos (Trigger Box e afins) e personagens ficam de fora.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Contato|Chao")
+	TEnumAsByte<ECollisionChannel> FloorChannel = ECC_Visibility;
 
 	/** Ate onde procura o chao para baixo, em cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Contato|Chao", meta = (ClampMin = "0"))
@@ -247,7 +260,7 @@ private:
 	const FDeverauxContactPair& GetPair(int32 Pair) const;
 	const FDeverauxContactMass& GetMass(int32 Mass) const;
 	void CacheMesh(const USkeletalMeshComponent& MeshComponent);
-	void BuildBodyCapsules(const USkeletalMeshComponent& MeshComponent, bool bWarn);
+	void BuildBodyCapsules(const USkeletalMeshComponent& MeshComponent);
 	void BuildValues(const USkeletalMeshComponent& MeshComponent, float DeltaTime);
 	bool SendValues(USkeletalMeshComponent& MeshComponent) const;
 
@@ -264,6 +277,9 @@ private:
 
 	/** Ossos de cada massa na malha (comeco e fim), INDEX_NONE quando falta. */
 	int32 MassBones[6][2];
+	/** O eixo de cada massa na pose de referencia. */
+	FVector RestMassA[6];
+	FVector RestMassB[6];
 	/** Na pose de referencia: a direcao da massa esquerda para a direita e quanto as duas ja se encostam, por par. */
 	FVector RestPairNormals[3];
 	float RestPairOverlaps[3];

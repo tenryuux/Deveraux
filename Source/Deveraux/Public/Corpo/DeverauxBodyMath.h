@@ -68,7 +68,7 @@ namespace DeverauxBody
 
 		/**
 		 * Bit de uma massa (0 a 5) ou do resto da carne (NumMasses), para dizer o que uma capsula empurra. Por massa, e
-		 * nao por parte: a panturrilha esquerda, que ja encosta na coxa esquerda parada, ainda empurra a direita.
+		 * nao por parte: uma capsula pode empurrar a coxa direita e nao a esquerda.
 		 */
 		constexpr int32 MassBit(int32 Mass) { return 1 << Mass; }
 		/** Os bits dos dois lados de uma parte (Seios, Gluteos, Coxas) ou o do resto da carne (Outras). */
@@ -102,8 +102,14 @@ namespace DeverauxBody
 		/** Caixas, quatro vetores cada, como sai do PackBox. */
 		constexpr int32 Boxes = Capsules + MaxCapsules * 2;
 		constexpr int32 MaxBoxes = 2;
+		/**
+		 * Onde cada capsula do proprio corpo fica na pose de referencia, dois vetores por capsula, na ordem delas:
+		 * (ponta A, 1) e (ponta B, 0). Zero nas de fora (parceiro, objetos). A carne que ja entra numa capsula na pose de
+		 * referencia (o braco encostado no seio, a panturrilha no joelho) fica onde esta: so o que entra alem disso sai.
+		 */
+		constexpr int32 CapsuleRests = Boxes + MaxBoxes * 4;
 		/** Tamanho do array. */
-		constexpr int32 Num = Boxes + MaxBoxes * 4;
+		constexpr int32 Num = CapsuleRests + MaxCapsules * 2;
 	}
 
 	/** O ponto do segmento AB mais perto de Point. */
@@ -131,13 +137,21 @@ namespace DeverauxBody
 	 */
 	DEVERAUX_API float MassDepthInCapsule(const FVector& MassA, const FVector& MassB, float MassRadius, const FVector& A,
 		const FVector& B, float Radius);
+
+	/**
+	 * Quanto um ponto com raio entra na capsula de RestA-RestB, na pose de referencia; 0 se nao entra. O contato com o
+	 * proprio corpo deixa esse tanto e so empurra o que entra alem dele.
+	 */
+	DEVERAUX_API float RestDepthInCapsule(const FVector& RestPoint, float PointRadius, const FVector& RestA, const FVector& RestB, float Radius);
 	DEVERAUX_API float MassDepthInPlane(const FVector& MassA, const FVector& MassB, float MassRadius, const FVector4& Plane);
 	DEVERAUX_API float MassDepthInBox(const FVector& MassA, const FVector& MassB, float MassRadius, const FVector4 Box[4]);
 
 	/**
 	 * Tira um ponto com raio (um osso dentro da massa) de dentro do que esta no array Contatos, como o kernel faz com a
-	 * carne: as capsulas que empurram a massa, as caixas, o chao da massa e o plano do par, duas voltas.
+	 * carne: as capsulas que empurram a massa, as caixas, o chao da massa e o plano do par, duas voltas. RestPoint e o
+	 * ponto na pose de referencia: nas capsulas do proprio corpo, o tanto que ele ja entrava parado fica.
 	 * Mass: 0 a 5 (par * 2 + lado). Array menor que ContactLayout::Num ou massa fora da faixa: o ponto volta igual.
 	 */
-	DEVERAUX_API FVector ResolveContactPoint(const TArray<FVector4>& Values, const FVector& Point, int32 Mass, float Radius);
+	DEVERAUX_API FVector ResolveContactPoint(const TArray<FVector4>& Values, const FVector& Point, const FVector& RestPoint, int32 Mass,
+		float Radius);
 }

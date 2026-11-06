@@ -286,7 +286,13 @@ float DeverauxBody::MassDepthInBox(const FVector& MassA, const FVector& MassB, f
 	return static_cast<float>(Depth);
 }
 
-FVector DeverauxBody::ResolveContactPoint(const TArray<FVector4>& Values, const FVector& Point, int32 Mass, float Radius)
+float DeverauxBody::RestDepthInCapsule(const FVector& RestPoint, float PointRadius, const FVector& RestA, const FVector& RestB, float Radius)
+{
+	return static_cast<float>(FMath::Max(Radius + PointRadius - (RestPoint - ClosestPointOnSegment(RestPoint, RestA, RestB)).Size(), 0.0));
+}
+
+FVector DeverauxBody::ResolveContactPoint(const TArray<FVector4>& Values, const FVector& Point, const FVector& RestPoint, int32 Mass,
+	float Radius)
 {
 	using namespace DeverauxBodyMathPrivate;
 	using namespace ContactLayout;
@@ -316,7 +322,13 @@ FVector DeverauxBody::ResolveContactPoint(const TArray<FVector4>& Values, const 
 			const FVector OnAxis = ClosestPointOnSegment(P, ToVector(A), ToVector(B));
 			const FVector Out = P - OnAxis;
 			const double Distance = Out.Size();
-			const double Reach = A.W + Radius;
+			// Capsula do proprio corpo: o tanto que o ponto ja entrava nela parado fica
+			double Reach = A.W + Radius;
+			const FVector4& RestA = Values[CapsuleRests + Index * 2];
+			if (RestA.W > 0.0)
+			{
+				Reach -= RestDepthInCapsule(RestPoint, Radius, ToVector(RestA), ToVector(Values[CapsuleRests + Index * 2 + 1]), static_cast<float>(A.W));
+			}
 			if (Distance < Reach && Distance > UE_KINDA_SMALL_NUMBER)
 			{
 				P = OnAxis + Out * (Reach / Distance);

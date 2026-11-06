@@ -1,0 +1,26 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Deveraux Groom",
+	"Description": "Exporta grooms (cabelo) da Unreal para Alembic, para editar no Blender e importar de volta.",
+	"Category": "Deveraux",
+	"CreatedBy": "Projeto Deveraux",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"EnabledByDefault": true,
+	"Modules": [
+		{
+			"Name": "DeverauxGroomEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "HairStrands",
+			"Enabled": true
+		}
+	]
+}

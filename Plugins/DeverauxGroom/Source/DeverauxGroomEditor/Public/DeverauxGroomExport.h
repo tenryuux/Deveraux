@@ -9,7 +9,7 @@
 #include "DeverauxGroomAlembic.h"
 
 class UGroomAsset;
-struct FHairDescription;
+class FHairDescription;
 
 namespace DeverauxGroomExport
 {

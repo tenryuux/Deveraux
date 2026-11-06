@@ -11,7 +11,8 @@ public class Deveraux : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "DeverauxSim", "DeverauxBattle" });
 
 		// AIModule, GameplayTasks e NavigationSystem: os NPCs do benchmark (AAIController e o NavMesh)
-		PrivateDependencyModuleNames.AddRange(new string[] { "DeveloperSettings", "AIModule", "GameplayTasks", "NavigationSystem" });
+		// PhysicsCore: as capsulas do Physics Asset que o contato do corpo le
+		PrivateDependencyModuleNames.AddRange(new string[] { "DeveloperSettings", "AIModule", "GameplayTasks", "NavigationSystem", "PhysicsCore" });
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

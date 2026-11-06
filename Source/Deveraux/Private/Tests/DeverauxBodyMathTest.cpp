@@ -167,6 +167,156 @@ bool FDeverauxBodyMathTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Caixa girada: a saida e o Z dela"), Near4(Box[3], Tilt.GetAxisZ().X, Tilt.GetAxisZ().Y, Tilt.GetAxisZ().Z, 30.0));
 	}
 
+	// Lugar de cada coisa no array Contatos: o kernel usa os mesmos numeros escritos a mao
+	{
+		using namespace DeverauxBody::ContactLayout;
+		TestTrue(TEXT("Layout do array: pares, apertos, massas, chaos, capsulas e caixas nos lugares do kernel"),
+			Pairs == 2 && Compression == 5 && Masses == 7 && Floors == 19 && Capsules == 26 && Boxes == 58 && MaxCapsules == 16 && MaxBoxes == 2);
+		TestTrue(TEXT("Layout do array: 66 vetores"), Num == 66 && NumFloors == 7);
+	}
+
+	// Pontos mais perto
+	{
+		TestTrue(TEXT("Ponto no meio do segmento"), Near(DeverauxBody::ClosestPointOnSegment(FVector(5.0, 3.0, 0.0), FVector::ZeroVector, FVector(10.0, 0.0, 0.0)), FVector(5.0, 0.0, 0.0)));
+		TestTrue(TEXT("Ponto alem da ponta: a ponta"), Near(DeverauxBody::ClosestPointOnSegment(FVector(15.0, 3.0, 0.0), FVector::ZeroVector, FVector(10.0, 0.0, 0.0)), FVector(10.0, 0.0, 0.0)));
+		TestTrue(TEXT("Segmento de um ponto so: o ponto"), Near(DeverauxBody::ClosestPointOnSegment(FVector(15.0, 3.0, 0.0), FVector(1.0, 2.0, 3.0), FVector(1.0, 2.0, 3.0)), FVector(1.0, 2.0, 3.0)));
+
+		FVector OnP;
+		FVector OnQ;
+		DeverauxBody::ClosestPointsBetweenSegments(FVector(-10.0, 0.0, 0.0), FVector(10.0, 0.0, 0.0), FVector(2.0, -10.0, 5.0), FVector(2.0, 10.0, 5.0), OnP, OnQ);
+		TestTrue(TEXT("Segmentos em cruz, um em cima do outro"), Near(OnP, FVector(2.0, 0.0, 0.0)) && Near(OnQ, FVector(2.0, 0.0, 5.0)));
+		DeverauxBody::ClosestPointsBetweenSegments(FVector(0.0, 0.0, 0.0), FVector(10.0, 0.0, 0.0), FVector(20.0, 5.0, 0.0), FVector(30.0, 5.0, 0.0), OnP, OnQ);
+		TestTrue(TEXT("Segmentos na mesma linha, separados: as pontas que se olham"), Near(OnP, FVector(10.0, 0.0, 0.0)) && Near(OnQ, FVector(20.0, 5.0, 0.0)));
+		DeverauxBody::ClosestPointsBetweenSegments(FVector(0.0, 0.0, 0.0), FVector(0.0, 0.0, 10.0), FVector(4.0, 0.0, 2.0), FVector(4.0, 0.0, 8.0), OnP, OnQ);
+		TestTrue(TEXT("Segmentos paralelos: a distancia certa"), FMath::IsNearlyEqual((OnQ - OnP).Size(), 4.0, Tolerance));
+		DeverauxBody::ClosestPointsBetweenSegments(FVector(3.0, 3.0, 3.0), FVector(3.0, 3.0, 3.0), FVector(0.0, 0.0, 0.0), FVector(0.0, 0.0, 10.0), OnP, OnQ);
+		TestTrue(TEXT("Um dos segmentos e um ponto"), Near(OnP, FVector(3.0, 3.0, 3.0)) && Near(OnQ, FVector(0.0, 0.0, 3.0)));
+	}
+
+	// Plano do par: entre as duas massas, com a normal da esquerda (+X, como no manequim) para a direita
+	{
+		float Overlap = 0.0f;
+		const FVector4 Equal = DeverauxBody::PairPlane(FVector(10.0, 0.0, 0.0), FVector(10.0, 10.0, 0.0), 8.0f,
+			FVector(-10.0, 0.0, 0.0), FVector(-10.0, 10.0, 0.0), 8.0f, FVector(-1.0, 0.0, 0.0), Overlap);
+		TestTrue(TEXT("Par igual: plano no meio, normal para a direita"), Near4(Equal, -1.0, 0.0, 0.0, 0.0));
+		TestTrue(TEXT("Par com folga de 4 cm: sobreposicao -4"), FMath::IsNearlyEqual(Overlap, -4.0f, 1.0e-4f));
+
+		const FVector4 Unequal = DeverauxBody::PairPlane(FVector(10.0, 0.0, 0.0), FVector(10.0, 10.0, 0.0), 10.0f,
+			FVector(-10.0, 0.0, 0.0), FVector(-10.0, 10.0, 0.0), 6.0f, FVector(-1.0, 0.0, 0.0), Overlap);
+		TestTrue(TEXT("Raios diferentes: o plano fica no meio da folga entre as superficies (x = -2)"), Near4(Unequal, -1.0, 0.0, 0.0, 2.0));
+
+		const FVector4 Pressed = DeverauxBody::PairPlane(FVector(4.0, 0.0, 0.0), FVector(4.0, 10.0, 0.0), 8.0f,
+			FVector(-2.0, 0.0, 0.0), FVector(-2.0, 10.0, 0.0), 8.0f, FVector(-1.0, 0.0, 0.0), Overlap);
+		TestTrue(TEXT("Apertadas: o plano fica no meio da parte que se sobrepoe (x = 1)"), Near4(Pressed, -1.0, 0.0, 0.0, -1.0));
+		TestTrue(TEXT("Apertadas: sobreposicao 10"), FMath::IsNearlyEqual(Overlap, 10.0f, 1.0e-4f));
+
+		const FVector4 Crossed = DeverauxBody::PairPlane(FVector(-5.0, 0.0, 0.0), FVector(5.0, 0.0, 0.0), 5.0f,
+			FVector(0.0, -5.0, 0.0), FVector(0.0, 5.0, 0.0), 5.0f, FVector(-1.0, 0.0, 0.0), Overlap);
+		TestTrue(TEXT("Eixos se cruzando: usa a normal de reserva"), Near4(Crossed, -1.0, 0.0, 0.0, 0.0));
+
+		// Coxas cruzadas: a esquerda passou para o outro lado; a normal continua da esquerda para a direita
+		const FVector4 CrossedLegs = DeverauxBody::PairPlane(FVector(-12.0, 0.0, 90.0), FVector(-14.0, 5.0, 50.0), 9.0f,
+			FVector(10.0, 0.0, 90.0), FVector(12.0, 2.0, 50.0), 9.0f, FVector(-1.0, 0.0, 0.0), Overlap);
+		TestTrue(TEXT("Pernas cruzadas: a normal segue a massa esquerda para a direita"), CrossedLegs.X > 0.9);
+	}
+
+	// Distancia com sinal ate a caixa
+	{
+		FVector4 Box[4] = { FVector4(0.0, 0.0, 0.0, 1.0), FVector4(1.0, 0.0, 0.0, 10.0), FVector4(0.0, 1.0, 0.0, 5.0), FVector4(0.0, 0.0, 1.0, 2.0) };
+		TestTrue(TEXT("Caixa: dentro e negativa, ate a face mais perto"), FMath::IsNearlyEqual(DeverauxBody::SignedDistanceToBox(FVector(0.0, 0.0, 1.0), Box), -1.0, Tolerance));
+		TestTrue(TEXT("Caixa: fora, a distancia ate a quina"), FMath::IsNearlyEqual(DeverauxBody::SignedDistanceToBox(FVector(13.0, 9.0, 0.0), Box), 5.0, Tolerance));
+		Box[0].W = 0.0;
+		TestTrue(TEXT("Caixa desligada: muito longe"), DeverauxBody::SignedDistanceToBox(FVector::ZeroVector, Box) > 1.0e30);
+	}
+
+	// Quanto uma massa entra no que encosta
+	{
+		const FVector A(0.0, 0.0, 0.0);
+		const FVector B(0.0, 10.0, 0.0);
+		TestTrue(TEXT("Massa e capsula a 12 cm, raios 10 e 5: entra 3"), FMath::IsNearlyEqual(DeverauxBody::MassDepthInCapsule(A, B, 10.0f, FVector(12.0, 5.0, -5.0), FVector(12.0, 5.0, 5.0), 5.0f), 3.0f, 1.0e-4f));
+		TestTrue(TEXT("Massa e capsula longe: 0"), DeverauxBody::MassDepthInCapsule(A, B, 10.0f, FVector(40.0, 5.0, -5.0), FVector(40.0, 5.0, 5.0), 5.0f) == 0.0f);
+		TestTrue(TEXT("Massa deitada a 8 cm do chao, raio 10: entra 2"), FMath::IsNearlyEqual(DeverauxBody::MassDepthInPlane(FVector(0.0, 0.0, 8.0), FVector(0.0, 10.0, 12.0), 10.0f, FVector4(0.0, 0.0, 1.0, 0.0)), 2.0f, 1.0e-4f));
+		TestTrue(TEXT("Chao desligado: 0"), DeverauxBody::MassDepthInPlane(FVector(0.0, 0.0, -50.0), FVector(0.0, 10.0, -50.0), 10.0f, FVector4(0.0, 0.0, 0.0, 0.0)) == 0.0f);
+		const FVector4 Seat[4] = { FVector4(0.0, 5.0, -5.0, 1.0), FVector4(1.0, 0.0, 0.0, 20.0), FVector4(0.0, 1.0, 0.0, 20.0), FVector4(0.0, 0.0, 1.0, 5.0) };
+		TestTrue(TEXT("Massa 6 cm acima do topo do assento, raio 10: entra 4"), FMath::IsNearlyEqual(DeverauxBody::MassDepthInBox(FVector(0.0, 0.0, 6.0), FVector(0.0, 10.0, 6.0), 10.0f, Seat), 4.0f, 1.0e-4f));
+	}
+
+	// Um osso dentro da massa sai do que encosta, com o raio dele
+	{
+		using namespace DeverauxBody::ContactLayout;
+		TArray<FVector4> Values;
+		Values.Init(FVector4(0.0, 0.0, 0.0, 0.0), Num);
+		Values[Header] = FVector4(2.0, 1.0, 0.0, 0.0);
+		// Plano dos seios em x = 0, normal para a direita (-X); capsula de raio 2 em y = 20, so para os seios
+		Values[Pairs + DeverauxBody::ContactRegion::Seios] = FVector4(-1.0, 0.0, 0.0, 0.0);
+		Values[Capsules] = FVector4(0.0, 20.0, 100.0, 2.0);
+		Values[Capsules + 1] = FVector4(0.0, 20.0, 140.0, DeverauxBody::ContactRegion::RegionBits(DeverauxBody::ContactRegion::Seios));
+		// Segunda capsula so para as coxas, no mesmo lugar
+		Values[Capsules + 2] = FVector4(0.0, 20.0, 100.0, 2.0);
+		Values[Capsules + 3] = FVector4(0.0, 20.0, 140.0, DeverauxBody::ContactRegion::RegionBits(DeverauxBody::ContactRegion::Coxas));
+		// Chao da coxa esquerda em z = 40
+		Values[Floors + 4] = FVector4(0.0, 0.0, 1.0, 40.0);
+		// Assento: caixa de 10 cm de altura com o topo em z = 50, saida para cima
+		Values[Boxes] = FVector4(100.0, 0.0, 45.0, 1.0);
+		Values[Boxes + 1] = FVector4(1.0, 0.0, 0.0, 20.0);
+		Values[Boxes + 2] = FVector4(0.0, 1.0, 0.0, 20.0);
+		Values[Boxes + 3] = FVector4(0.0, 0.0, 1.0, 5.0);
+
+		TestTrue(TEXT("Seio esquerdo atravessando o plano: volta para o seu lado, com o raio"),
+			Near(DeverauxBody::ResolveContactPoint(Values, FVector(-1.0, 0.0, 120.0), 0, 3.0f), FVector(3.0, 0.0, 120.0)));
+		TestTrue(TEXT("Seio direito atravessando: volta para o lado dele"),
+			Near(DeverauxBody::ResolveContactPoint(Values, FVector(1.0, 0.0, 120.0), 1, 3.0f), FVector(-3.0, 0.0, 120.0)));
+		TestTrue(TEXT("Seio direito no seu lado e longe: fica"),
+			Near(DeverauxBody::ResolveContactPoint(Values, FVector(-10.0, 0.0, 120.0), 1, 3.0f), FVector(-10.0, 0.0, 120.0)));
+		TestTrue(TEXT("Seio dentro da capsula e do plano: sai dos dois (capsula e depois o plano)"),
+			FMath::IsNearlyEqual((DeverauxBody::ResolveContactPoint(Values, FVector(4.0, 21.0, 120.0), 0, 3.0f) - FVector(0.0, 20.0, 120.0)).Size(), 5.0, 1.0e-3)
+			&& DeverauxBody::ResolveContactPoint(Values, FVector(4.0, 21.0, 120.0), 0, 3.0f).X >= 3.0 - 1.0e-3);
+		TestTrue(TEXT("Capsula so dos seios e so das coxas nao empurram o gluteo (2,2 cm do eixo, dentro do alcance de 3)"),
+			Near(DeverauxBody::ResolveContactPoint(Values, FVector(2.0, 21.0, 120.0), 2, 1.0f), FVector(2.0, 21.0, 120.0)));
+		TestTrue(TEXT("Coxa esquerda abaixo do chao dela: sobe ate o raio acima"),
+			Near(DeverauxBody::ResolveContactPoint(Values, FVector(30.0, -30.0, 38.0), 4, 3.0f), FVector(30.0, -30.0, 43.0)));
+		TestTrue(TEXT("Coxa esquerda 1 cm acima do chao, raio 3: sobe ate o raio acima"),
+			Near(DeverauxBody::ResolveContactPoint(Values, FVector(30.0, -30.0, 41.0), 4, 3.0f), FVector(30.0, -30.0, 43.0)));
+		TestTrue(TEXT("Coxa direita sem chao: fica"),
+			Near(DeverauxBody::ResolveContactPoint(Values, FVector(-30.0, -30.0, 38.0), 5, 3.0f), FVector(-30.0, -30.0, 38.0)));
+		TestTrue(TEXT("Gluteo dentro do assento: sai pelo topo, com o raio"),
+			Near(DeverauxBody::ResolveContactPoint(Values, FVector(100.0, 0.0, 48.0), 2, 2.0f), FVector(100.0, 0.0, 52.0)));
+		TestTrue(TEXT("Massa fora da faixa: o ponto volta igual"),
+			Near(DeverauxBody::ResolveContactPoint(Values, FVector(-1.0, 0.0, 120.0), 6, 3.0f), FVector(-1.0, 0.0, 120.0)));
+		TArray<FVector4> Short;
+		Short.Init(FVector4(0.0, 0.0, 0.0, 0.0), Num - 1);
+		TestTrue(TEXT("Array curto: o ponto volta igual"),
+			Near(DeverauxBody::ResolveContactPoint(Short, FVector(-1.0, 0.0, 120.0), 0, 3.0f), FVector(-1.0, 0.0, 120.0)));
+	}
+
+	// Duas voltas: a capsula joga o ponto para o outro lado do par, e o par o devolve para dentro da capsula
+	{
+		using namespace DeverauxBody::ContactLayout;
+		TArray<FVector4> Values;
+		Values.Init(FVector4(0.0, 0.0, 0.0, 0.0), Num);
+		Values[Header] = FVector4(1.0, 0.0, 0.0, 0.0);
+		Values[Pairs + DeverauxBody::ContactRegion::Seios] = FVector4(-1.0, 0.0, 0.0, 0.0);
+		Values[Capsules] = FVector4(1.0, -10.0, 0.0, 2.0);
+		Values[Capsules + 1] = FVector4(1.0, 10.0, 0.0, DeverauxBody::ContactRegion::RegionBits(DeverauxBody::ContactRegion::Seios));
+		// Volta 1: (0,5; 0; 0,5) sai da capsula para (-0,41; 0; 1,41) e o par leva para x = 0. Volta 2: sai de novo e volta ao plano
+		TestTrue(TEXT("Capsula e plano do par: o ponto anda nas duas voltas"),
+			Near(DeverauxBody::ResolveContactPoint(Values, FVector(0.5, 0.0, 0.5), 0, 0.0f), FVector(0.0, 0.0, 1.6329932)));
+	}
+
+	// Bits por massa: a capsula sem o bit da coxa esquerda (a panturrilha esquerda) ainda empurra a coxa direita
+	{
+		using namespace DeverauxBody::ContactLayout;
+		TArray<FVector4> Values;
+		Values.Init(FVector4(0.0, 0.0, 0.0, 0.0), Num);
+		Values[Header] = FVector4(1.0, 0.0, 0.0, 0.0);
+		Values[Capsules] = FVector4(0.0, 0.0, 0.0, 5.0);
+		Values[Capsules + 1] = FVector4(0.0, 0.0, 10.0, DeverauxBody::ContactRegion::AllBits & ~DeverauxBody::ContactRegion::MassBit(4));
+		TestTrue(TEXT("Bits por massa: a coxa esquerda fica"), Near(DeverauxBody::ResolveContactPoint(Values, FVector(3.0, 0.0, 5.0), 4, 0.0f), FVector(3.0, 0.0, 5.0)));
+		TestTrue(TEXT("Bits por massa: a coxa direita sai"), Near(DeverauxBody::ResolveContactPoint(Values, FVector(3.0, 0.0, 5.0), 5, 0.0f), FVector(5.0, 0.0, 5.0)));
+		TestEqual(TEXT("Bits das duas coxas"), DeverauxBody::ContactRegion::RegionBits(DeverauxBody::ContactRegion::Coxas), 48);
+		TestEqual(TEXT("Bit do resto da carne"), DeverauxBody::ContactRegion::RegionBits(DeverauxBody::ContactRegion::Outras), 64);
+	}
+
 	return true;
 }
 
